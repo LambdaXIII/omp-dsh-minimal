@@ -1,0 +1,15 @@
+{
+  "name": "omp-deepseekpro-booster",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "omp extension: two-phase tool anchoring to mitigate DeepSeek V4-Pro CoT overfitting",
+  "omp": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "devDependencies": {
+    "@oh-my-pi/pi-coding-agent": "17.3.5"
+  }
+}
