@@ -78,9 +78,9 @@ promote 后恢复完整 base prompt（omp per-turn 自动）。与「两阶段�
 
 阶段由「当前 turn 是否已发生 promote 信号」推导，每 turn 的 `before_agent_start` 独立判断，无需显式持久化。session 中途 compact/分支时，因阶段可推导，语义自然保持。
 
-### D7. 前台无感 + 调试 → 默认无感，保留 env 调试开关
+### D7. 开关控制 → 默认关闭，显式开启，切换过程无感
 
-默认完全无感（无 TUI 显示、无手动开关）。保留 `PI_ANCHOR_DEBUG=1` 式环境变量，输出当前阶段/实际工具目录/systemPrompt 到日志，供排障。
+因切换破坏 KV 缓存（真实额外成本），功能**不默认自动生效**。提供开关（命令 `/anchor on|off|status` + 配置持久化）：用户显式开启后，模型匹配（DeepSeek V4 Pro + thinking High）时自动锚定；可随时关闭。开启后**切换过程本身仍无感**（无 TUI 显示），调试用 `PI_ANCHOR_DEBUG=1` 观察当前阶段/实际工具目录/systemPrompt。
 
 ## 6. 技术约束与风险
 
