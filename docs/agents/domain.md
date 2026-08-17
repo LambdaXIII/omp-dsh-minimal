@@ -50,6 +50,11 @@ If your output contradicts an existing ADR, surface it explicitly rather than si
 
 > _Contradicts ADR-0007 (event-sourced orders) — but worth reopening because…_
 
-## Design documents
+## Documents
 
-Non-ADR design documents for this repo live under `docs/design/`. This includes behavior specs, interface designs, state-machine descriptions, and any design prose that is not a single architecture-decision record. `docs/adr/` stays reserved for hard-to-reverse architecture decisions (decision + rationale + tradeoffs). When exploring a design area, check `docs/design/` alongside `docs/adr/`.
+All documentation for this repo lives under `docs/`, organized by type:
+- `docs/adr/` — architecture decision records (hard-to-reverse decisions: decision + rationale + tradeoffs)
+- `docs/design/` — design documents (behavior specs, interface designs, state-machine descriptions, testing plans)
+- `docs/agents/` — agent skill configuration
+
+When exploring a design area, check `docs/design/` alongside `docs/adr/`. The issue tracker (specs, tickets, triage state) is a separate facility — see `docs/agents/issue-tracker.md` (local markdown under `.scratch/`).
