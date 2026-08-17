@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+
+# Local issue tracker (local-markdown convention)
+.scratch/
+
+# Build output
+dist/
+build/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+
+# Environment / secrets
+.env
+.env.*
+
+# Editor
+.idea/
+.vscode/
