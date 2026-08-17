@@ -1,6 +1,18 @@
 # 两阶段锚定插件 — 设计（基于网络共识 + omp 技术约束）
 
-> 状态：**决策已定**。依据 = ①社区网络共识（dsh minimal、pi-deepseek-anchor、awesome-deepseek-harness、CTOL 分析）+ ②omp 源码实证。用户确认大方向后进入实现。设计决策各落一条记录，待沉淀 ADR。
+> 状态：**决策已定**。依据 = ①社区网络共识（dsh minimal、pi-deepseek-anchor、awesome-deepseek-harness、CTOL 分析）+ ②omp 源码实证。
+
+## 文档导航
+
+**设计文档（行为全貌）**：本文档（`docs/design/anchor-plugin.md`）——两阶段状态机、技术事实、设计决策、约束、验证计划。它是行为规格的主文档。
+
+**架构决策（ADR，`docs/adr/`）**：难以逆转、有真实权衡的决策记录（决策 + 理由，供未来读者理解「为什么这么做」）：
+- [ADR-0001](docs/adr/0001-two-phase-anchoring.md) — 两阶段锚定机制（anchor-then-promote）
+- [ADR-0002](docs/adr/0002-explicit-switch.md) — 显式开关（默认关，因 KV 缓存成本）
+- [ADR-0003](docs/adr/0003-activation-condition.md) — 激活条件限定 DeepSeek V4 Pro + thinking High
+- [ADR-0004](docs/adr/0004-promotion-once.md) — promote 一次性 + 配置中断重置
+
+**不进 ADR 的设计决策**（可逆，留在此设计文档）：锚定工具集选择（`bash+edit` 起步、可换）、persona 文本（逐字节复刻 dsh minimal）、`on` 便利行为细节、widget 呈现细节。这些容易改，写成 ADR 会过度记录。
 
 ## 1. 背景与动机
 
