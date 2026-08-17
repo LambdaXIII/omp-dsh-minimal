@@ -114,9 +114,11 @@ promote 后恢复完整 base prompt（omp per-turn 自动）。与「两阶段�
 
 ## 7. 验证计划
 
-- **单元**：阶段状态机转换、触发条件、模型/thinking 过滤分支
-- **集成**：真实 omp 会话，deepseek-v4-pro + thinking high 下跑一个 prompt，观察：首轮 systemPrompt 纯净、工具目录极简、promote 后恢复、推理风格 `Let me` → `We need`
-- **对照**：同 prompt 开/关插件对比工具目录与推理风格
+完整测试方法见 **[docs/design/testing.md](docs/design/testing.md)**（锚定：局部引入方式、log 机制、观察指标、L1/L2/L3 步骤）。摘要：
+
+- **L1 单元测试**（必做）：抽取纯逻辑（激活判定、阶段转换）用 bun test 测
+- **L2 冒烟**（必做）：`omp --extension ./src/index.ts` 加载，验证命令/widget/开关
+- **L3 效果验证**（用户执行，必做一次）：真实 DeepSeek 会话，开/关插件跑同一任务，对比推理风格（`Let me` → `We need`）、工具目录、耗时
 
 ## 8. 待确认（实现中钉死）
 

@@ -11,10 +11,12 @@
  * Activation: enabled (switch) AND current model is DeepSeek V4 Pro AND
  * thinking level is High. A break in any condition resets promotion.
  *
- * Design: docs/design/anchor-plugin.md
+ * Design: docs/design/anchor-plugin.md · ADRs: docs/adr/0001-0004
+ * Testing: docs/design/testing.md
  */
-import type { ExtensionAPI } from "@oh-my-pi/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
+import { Container, Text } from "@oh-my-pi/pi-tui";
 
 const DEBUG = process.env.PI_ANCHOR_DEBUG === "1";
 
@@ -27,13 +29,19 @@ const MINIMAL_PERSONA = "You are a helpful software engineer assistant.";
 /** Matches DeepSeek V4 Pro model ids (activation condition). */
 const PRO_MODEL_PATTERN = /deepseek[^/]*[\/:]?(?:deepseek-)?v4-?pro(?:[:/]|$)/i;
 
-function log(message: string): void {
-  if (DEBUG) console.error(`[dspro-boost] ${message}`);
-}
-
 type WidgetState = "off" | "active" | "inactive";
 
 export default function dsproBoost(pi: ExtensionAPI): void {
+  // Logging: key events always land in the omp file log (~/.omp/logs/omp.*.log)
+  // via pi.logger (console output would corrupt the TUI). Detail lines only
+  // when PI_ANCHOR_DEBUG=1.
+  const log = (message: string): void => {
+    pi.logger.info(`[dspro-boost] ${message}`);
+  };
+  const debug = (message: string): void => {
+    if (DEBUG) pi.logger.debug(`[dspro-boost] ${message}`);
+  };
+
   // User switch: whether anchoring is allowed at all. Default off.
   let enabled = false;
   // Phase state: false = bootstrap (anchored, not yet promoted); true = full.
@@ -44,37 +52,39 @@ export default function dsproBoost(pi: ExtensionAPI): void {
   let widgetState: WidgetState = "off";
 
   /** Whether the current model + thinking level match the pro+High condition. */
-  const isActive = (ctx: { models?: unknown }): boolean => {
+  const isActive = (ctx: ExtensionContext): boolean => {
     if (!enabled) return false;
-    const model = (ctx.models as { current?: () => { id?: string; name?: string } | undefined } | undefined)
-      ?.current?.();
+    const model = ctx.models.current();
     const modelId = model?.id ?? model?.name ?? "";
     const isPro = PRO_MODEL_PATTERN.test(modelId);
     const isHigh = pi.getThinkingLevel() === ThinkingLevel.High;
     const active = isPro && isHigh;
-    log(`isActive: enabled=${enabled} model="${modelId}" pro=${isPro} high=${isHigh} -> ${active}`);
+    debug(`isActive: enabled=${enabled} model="${modelId}" pro=${isPro} high=${isHigh} -> ${active}`);
     return active;
   };
 
-  const renderFor = (ctx: { ui: { setWidget: unknown } }): void => {
+  /** Renders the persistent status widget above the editor (or removes it). */
+  const renderFor = (ctx: ExtensionContext): void => {
     if (!enabled) {
-      (ctx.ui as { setWidget(key: string, content: unknown): void }).setWidget("dspro-boost", undefined);
+      ctx.ui.setWidget("dspro-boost", undefined);
       return;
     }
-    const color = widgetState === "active" ? "green" : "red";
+    const color = widgetState === "active" ? "success" : "error";
     const label = widgetState === "active" ? "boost: active" : "boost: inactive";
-    (ctx.ui as { setWidget(key: string, content: unknown, opts?: unknown): void }).setWidget(
+    ctx.ui.setWidget(
       "dspro-boost",
-      (_tui: unknown, theme: { fg: (color: string, text: string) => unknown }) => {
-        // Plain-text widget until the theme component API is confirmed.
-        return theme.fg(color, label);
+      (_tui, theme) => {
+        const container = new Container();
+        container.addChild(new Text(theme.fg(color, label), 1, 0));
+        return container;
       },
       { placement: "aboveEditor" },
     );
   };
 
   pi.registerCommand("dspro-boost", {
-    description: "Two-phase tool anchoring for DeepSeek V4-Pro CoT overfitting. Usage: /dspro-boost on|off|status",
+    description:
+      "Two-phase tool anchoring for DeepSeek V4-Pro CoT overfitting. Usage: /dspro-boost on|off|status",
     handler: async (args, ctx) => {
       const cmd = (args.trim().split(/\s+/)[0] ?? "").toLowerCase();
       if (cmd === "on") {
@@ -83,23 +93,24 @@ export default function dsproBoost(pi: ExtensionAPI): void {
         fullTools = undefined;
         // Convenience only: set model/thinking to V4-Pro/High. Does NOT change
         // the activation logic (still requires actual pro+High each turn).
-        const models = ctx.models as { resolve?: (spec: string) => unknown };
-        let resolved: unknown;
+        let resolved;
         for (const spec of ["deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-pro:high"]) {
-          resolved = models.resolve?.(spec);
+          resolved = ctx.models.resolve(spec);
           if (resolved) break;
         }
         if (resolved) {
-          await (pi.setModel as (m: unknown) => Promise<boolean>)(resolved);
+          await pi.setModel(resolved);
         } else {
-          log("on: could not resolve a V4-Pro model; leaving model as-is");
+          debug("on: could not resolve a V4-Pro model; leaving model as-is");
         }
         pi.setThinkingLevel(ThinkingLevel.High);
+        log("switch on");
         ctx.ui.notify("dspro-boost: on (model/thinking set to V4-Pro/High)", "info");
         renderFor(ctx);
       } else if (cmd === "off") {
         enabled = false;
         promoted = false;
+        log("switch off");
         ctx.ui.notify("dspro-boost: off", "info");
         renderFor(ctx);
       } else {
