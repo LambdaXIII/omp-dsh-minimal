@@ -78,9 +78,20 @@ promote 后恢复完整 base prompt（omp per-turn 自动）。与「两阶段�
 
 阶段由「当前 turn 是否已发生 promote 信号」推导，每 turn 的 `before_agent_start` 独立判断，无需显式持久化。session 中途 compact/分支时，因阶段可推导，语义自然保持。
 
-### D7. 开关控制 → 默认关闭，显式开启，切换过程无感
+### D7. 开关控制 → 命令 `/dspro-boost`，默认关闭，切换过程无感
 
-因切换破坏 KV 缓存（真实额外成本），功能**不默认自动生效**。提供开关（命令 `/anchor on|off|status` + 配置持久化）：用户显式开启后，模型匹配（DeepSeek V4 Pro + thinking High）时自动锚定；可随时关闭。开启后**切换过程本身仍无感**（无 TUI 显示），调试用 `PI_ANCHOR_DEBUG=1` 观察当前阶段/实际工具目录/systemPrompt。
+**命令**：`/dspro-boost on|off|status`（+ 配置持久化）。
+
+- **开关是总闸**：off → 永不锚定；on → 允许锚定。因切换破坏 KV 缓存，**不默认自动生效**。
+- **`on` 的便利行为**：`on` 时顺带把模型自动设为 DeepSeek V4 Pro、thinking 设为 High（`setModel` + `setThinkingLevel`）。这是**纯便利**（帮用户省事），**不改变触发条件的运行逻辑**——触发条件仍每 turn 检测实际状态（pro ∧ high），不管模型是自动设的还是用户手动设的。
+- **开关与触发条件独立**：锚定生效 ⇔ 开关 on ∧ 模型=pro ∧ thinking=high。条件逻辑不被 `on` 的便利行为改变。
+- **切换过程无感**：开启后锚定→执行的切换不在 TUI 显示、不打扰。
+
+**TUI 呈现（widget，编辑器上方常驻）**：`/dspro-boost on` 时显示 `boost` 状态条，用组件工厂 + 主题色着色：
+- 开关 on 且条件符合（实际 pro+high）→ **绿色**（正在生效）
+- 开关 on 但条件不符合（用户改了模型/thinking 或设置失败）→ **红色**（开了但没在生效）
+- 开关 off → 不显示或灰显
+- 调试用 `PI_ANCHOR_DEBUG=1` 输出当前阶段/实际工具目录/systemPrompt。
 
 ## 6. 技术约束与风险
 
