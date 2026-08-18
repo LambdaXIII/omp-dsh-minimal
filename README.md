@@ -1,97 +1,82 @@
 # omp-dsh-minimal
 
-DeepSeek Harness **minimal 模式**的 omp 实现：纯净 persona + 仅 `bash` + `str_replace_editor` 两个工具，缓解 DeepSeek V4-Pro 的 CoT 过拟合。
+DeepSeek Harness **minimal mode** for omp: a clean persona plus only `bash` and `str_replace_editor` — mitigates DeepSeek V4-Pro CoT overfitting.
 
-## 为什么
+## Why
 
-DeepSeek V4-Pro 的 CoT 对训练分布过拟合：进入 `Let me` 式思维链后推理质量崩。dsh minimal（DeepSeek Harness 极简 preset）实证：极简环境产出干净的 `We need` 式推理（官方基准 99/96 vs 全量 91/92）。omp 无此模式，本插件补上。
+DeepSeek V4-Pro's CoT overfits to its training distribution: once it enters a `Let me`-style reasoning chain, inference quality collapses. dsh minimal (DeepSeek Harness's minimal preset) demonstrates that a minimal environment produces clean `We need`-style reasoning (official benchmark 99/96 vs 91/92 full). omp has no such mode; this extension adds it.
 
-**关键约束（ablation 实测，2026-08-18）**：工具文本提及（消息里出现工具名/描述/schema，即使不可调用）破坏 `We need` 并诱发模型直接调用不可调用工具——极简环境必须**零工具文本**。因此本插件不注入工具 schema、不注入工具提及。
+**Key constraint (ablation-tested, 2026-08-18)**: mentioning tool text — tool names, descriptions, or schemas in messages, even when not callable — breaks `We need` and triggers the model to call non-callable tools. The minimal environment must stay **zero tool text**. This extension therefore injects no tool schema and no tool mentions.
 
-## 安装
+## Install
 
-omp 没有 `plugins install` 类命令——「安装」= 把扩展模块放到发现目录或配置里，启动时自动加载。扩展是 TS/JS 模块，导出默认工厂（`export default function (pi: ExtensionAPI) {}`）。前提：已安装 `omp` 与 `bun`；运行时依赖经 `@oh-my-pi/pi-coding-agent` 传递覆盖（`bun install` 一次装全）。
+There is no config-identifier auto-install (writing a name in a config file and having it fetched) — installs happen through `omp plugin` (identifier-based CLI) or by placing the extension module where discovery finds it. Extensions are TS/JS modules exporting a default factory (`export default function (pi: ExtensionAPI) {}`). Prerequisites: `omp` and `bun`; runtime dependencies are transitively covered via `@oh-my-pi/pi-coding-agent` (a single `bun install` fetches everything).
 
 ```bash
 git clone https://github.com/LambdaXIII/omp-dsh-minimal ~/omp-dsh-minimal
 cd ~/omp-dsh-minimal && bun install
 ```
 
-**方式一：自动发现目录（最常用）**
+**Option A: `omp plugin` (recommended)**
+
+omp ships a plugin distribution system (`omp plugin install/uninstall/list/upgrade/marketplace`) — installs by identifier into `~/.omp/plugins/`; the extension entry is auto-discovered via `getAllPluginExtensionPaths`, no configuration needed:
 
 ```bash
-# 全局（常驻）
-ln -s ~/omp-dsh-minimal ~/.omp/agent/extensions/omp-dsh-minimal
-# 或项目级
-ln -s ~/omp-dsh-minimal <项目>/.omp/extensions/omp-dsh-minimal
+omp plugin install github:LambdaXIII/omp-dsh-minimal
+# pin a commit: omp plugin install "github:LambdaXIII/omp-dsh-minimal#<commit>"
 ```
 
-放进去的 `.ts`/`.js` 文件或目录（`foo/index.ts`）启动时自动加载。
+Supported identifier forms: npm package names (`@oh-my-pi/exa`), `name@marketplace`, `github:user/repo`, `https://github.com/user/repo#v1.0`, local paths (linked). `omp plugin marketplace add <source>` registers a custom marketplace. This repository is a plugin-package (`package.json` declares `"omp": { "extensions": [...] }`; runtime deps live in `dependencies` so npm/bun installs work).
 
-**方式二：config.yml 配置路径**
+> Note: `github:user/repo` without a commit relies on bun's branch-resolution cache and can occasionally resolve an outdated commit — pin with `#<commit>` or run `omp plugin upgrade` if so.
+
+**Option B: config.yml path**
 
 ```yaml
-# ~/.omp/agent/config.yml（或 <项目>/.omp/config.yml）
+# ~/.omp/agent/config.yml (or <project>/.omp/config.yml)
 extensions:
   - ~/omp-dsh-minimal
 ```
 
-**方式三：CLI 显式加载（临时/一次性）**
+**Reference**:
+- Disable individually: `disabledExtensions: [extension-module:<name>]` (name from path: `foo.ts` → `foo`, `foo/index.ts` → `foo`)
+- Load order: auto-discovery → hook factories → plugin package entries → explicitly configured paths; deduplicated by absolute path, first wins
+- Extensions are the unified system (events + tools + commands + renderers); hooks are the legacy event API, custom-tools are tool-only modules — build plugins on the extension system
+- Extensions are not sandboxed and share the process; during factory load you may only register, runtime behavior goes in events/commands/tools
 
-```bash
-omp -e ~/omp-dsh-minimal
-# --no-extensions 关闭自动发现，显式 -e 仍生效
-```
+## Quick Start
 
-**方式四：插件包（`omp plugin` 自动安装，最省事）**
-
-omp 有插件分发体系（`omp plugin install/uninstall/list/upgrade/marketplace`）——按标识安装到 `~/.omp/plugins/`，扩展入口经 `getAllPluginExtensionPaths` 自动发现，**无需配置**：
-
-```bash
-omp plugin install github:LambdaXIII/omp-dsh-minimal
-# 或固定版本：omp plugin install "github:LambdaXIII/omp-dsh-minimal#<commit>"
-```
-
-支持标识形态：npm 包名（`@oh-my-pi/exa`）、`name@marketplace`、`github:user/repo`、`https://github.com/user/repo#v1.0`、本地路径（link）。`omp plugin marketplace add <source>` 添加自定义市场。本仓库即插件包形态（`package.json` 声明 `"omp": { "extensions": [...] }`，运行时依赖在 `dependencies` 供 npm/bun 安装）。
-
-> 提示：`github:user/repo`（无 commit）依赖 bun 的分支解析缓存，个别情况下会拉到旧 commit——遇到时用 `#<commit>` 固定或 `omp plugin upgrade`。
-
-**关键细节**：
-- 禁用单个：`disabledExtensions: [extension-module:<名字>]`（名字取自路径：`foo.ts` → `foo`，`foo/index.ts` → `foo`）
-- 加载顺序：自动发现 → hook 工厂 → 插件包入口 → 显式配置路径；按绝对路径去重，先到先得
-- 扩展是统一体系（事件 + 工具 + 命令 + 渲染器）；hook 是遗留事件 API，custom-tools 是纯工具模块——插件用扩展体系
-- 扩展不沙箱、与进程同运行；工厂加载期只能注册，运行时行为放事件/命令/工具里
-
-## 快速开始
-
-| 命令 | 行为 |
+| Command | Behavior |
 |---|---|
-| `/dsh-minimal` | 开启极简开关（便利设 V4-Pro/High；开启后任何模型都极简） |
-| `/dsh-minimal off` | 退出（确认对话框 → 恢复完整工具 → 警告含 KV 缓存代价） |
-| `/dsh-minimal status` | 查看当前状态 |
+| `/dsh-minimal` | Enable minimal mode (convenience: sets V4-Pro/High; any model becomes minimal once enabled) |
+| `/dsh-minimal off` | Exit (confirm dialog → restore full tools → KV-cache-cost warning) |
+| `/dsh-minimal status` | Show current state |
 
-输入 `/dsh-minimal `（带空格）触发参数补全（`off` / `status` + 说明）。
+Typing `/dsh-minimal ` (trailing space) triggers argument completion (`off` / `status` with descriptions).
 
-**效果**：开启后新会话首轮自动注入约定文件（`AGENTS.md` 原文，零工具文本）；模型全程只有 `bash` + `str_replace_editor`，thinking 开头呈 `We need` 式，多轮不纠结。已实测（真实 DeepSeek V4 Pro）：We need 复现、思考质量高；代价是速度较慢（约定全文注入）。
+**Effect**: after enabling, the first request of a new session auto-injects the convention files (`AGENTS.md` text, zero tool text); the model keeps only `bash` + `str_replace_editor`; thinking opens with `We need` and stays decisive across turns. Verified on real DeepSeek V4 Pro: `We need` reproduced, high reasoning quality; the cost is slower turns (convention-text injection).
 
-**widget**：编辑器上方状态条——绿 = `DeepSeek Harness Minimal Mode: Context Injected`，红 = `DeepSeek Harness Minimal Mode: Active`（未注入，如中途开启）；off 消失。开关不持久化（session 重启默认关）。
+**Widget**: status bar above the editor — green = `DeepSeek Harness Minimal Mode: Context Injected`, red = `DeepSeek Harness Minimal Mode: Active` (not injected, e.g. enabled mid-session); gone when off. The switch is not persisted (defaults to off per session).
 
-## 机制
+## Mechanism
 
-- **极简环境**：开启期间每轮注入纯净 persona（`You are a helpful software engineer assistant.`）+ 仅 2 工具，无 promote、无模型监测
-- **会话头部注入**：首轮（历史无用户消息）注入约定文件原文；compact 经官方钩子保留；handoff/new 消息清空后自然重注入；**中途开启不注入**（widget 红如实反映）
-- **协议处理**（工具调用拦截点）：`skill://` `agent://` `artifact://` `memory://` `rule://` `local://` 由 omp bash 原生展开（读写都工作）；`xd://<tool>` 经 `getAllTools()` 解析工具描述返回；其余（`mcp://` `issue://` `pr://` `vault://` `omp://` `history://`）fail-open 放行原生
-- **退出**：off 确认后恢复完整工具快照 + persona 停止覆盖；下一轮向模型注入一次性退出告知（忽略历史极简注入）
+- **Minimal environment**: every turn injects the clean persona (`You are a helpful software engineer assistant.`) + only 2 tools; no promote, no model monitoring
+- **Session-head injection**: first request (no user message in history) injects convention-file text; compaction keeps it via the official hook; handoff/new clears messages and re-injects naturally; **enabling mid-session never injects** (widget stays red)
+- **Protocol handling** (at the tool-call interception point): `skill://` `agent://` `artifact://` `memory://` `rule://` `local://` are expanded natively by omp bash (read and write both work); `xd://<tool>` resolves the tool description via `getAllTools()` and returns it; the rest (`mcp://` `issue://` `pr://` `vault://` `omp://` `history://`) fail open to native bash
+- **Exit**: after a confirmed off, the full tool snapshot is restored and persona override stops; the next request injects a one-shot exit notice (ignore historical minimal-mode injections)
 
-## 文档
+## Docs
 
-- [设计](docs/design/dsh-minimal.md)（D1-D9，权威规格）· [测试方法](docs/design/testing.md)（L1-L3）
-- 决策记录：`docs/adr/0002`（极简开关）/`0003`（无激活条件）/`0005`（无 promote）/`0006`（协议处理）/`0007`（注入与退出告知）
-- 领域术语：[CONTEXT.md](CONTEXT.md)
-- 规格与用户故事：`.scratch/dsh-minimal/spec.md`
+- [Design](docs/design/dsh-minimal.md) (D1-D9, authoritative) · [Testing](docs/design/testing.md) (L1-L3)
+- Decision records: `docs/adr/0002` (explicit switch) / `0003` (no activation condition) / `0005` (no promote) / `0006` (protocol handling) / `0007` (injection & exit notice)
+- Domain glossary: [CONTEXT.md](CONTEXT.md)
+- Spec & user stories: `.scratch/dsh-minimal/spec.md` (local tracker, not published)
+- 中文版: [README.zh-CN.md](README.zh-CN.md)
 
-## 已知限制
+## License
 
-- 速度较慢：注入约定全文 + 极简环境（单轮 token 成本、KV 缓存切换代价）
-- 多轮持续犹豫：零上下文环境的模型固有代价（ablation 实证非注入可解）
-- `mcp://` 等协议在极简环境不可用（无官方读取 API，fail-open 由 bash 报错）
+[MIT](LICENSE)
+
+- Slower turns: convention-text injection + minimal environment (per-turn token cost, KV-cache switching)
+- Multi-turn hesitation: inherent cost of a zero-context environment (ablation shows injection cannot fix it)
+- `mcp://` and similar protocols unavailable in minimal mode (no official read API; fail open to bash errors)

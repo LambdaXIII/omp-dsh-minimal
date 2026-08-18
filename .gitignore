@@ -1,26 +1,169 @@
+# =============================================================================
+# omp-dsh-minimal — .gitignore
+# Sources: ~/.agents/journal/knowledge/2026-08-16-agent-tool-lists.md
+# (agent dirs full list + per-stack selection; never paste whole templates)
+# Stack: Node/TS + bun extension; cross-platform OS entries for public repo.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
 # Dependencies
+# -----------------------------------------------------------------------------
 node_modules/
+.bun/
+.npm/
+.pnpm-store/
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/sdks
+!.yarn/versions
 
-# Local issue tracker (local-markdown convention)
-.scratch/
-
-# Build output
+# -----------------------------------------------------------------------------
+# Build / coverage / cache
+# -----------------------------------------------------------------------------
 dist/
 build/
+out/
+coverage/
+*.tsbuildinfo
+.eslintcache
+.cache/
 
+# -----------------------------------------------------------------------------
+# Local issue tracker (local-markdown convention, not published)
+# -----------------------------------------------------------------------------
+.scratch/
+
+# -----------------------------------------------------------------------------
 # Logs
+# -----------------------------------------------------------------------------
 *.log
+nohup.out
+*.pid
+*.pid.lock
+*.seed
 
-# OS
-.DS_Store
-
+# -----------------------------------------------------------------------------
 # Environment / secrets
+# -----------------------------------------------------------------------------
 .env
 .env.*
+!.env.example
 
+# -----------------------------------------------------------------------------
 # L3 session exports (not source)
+# -----------------------------------------------------------------------------
 plugin-*.html
 
-# Editor
+# -----------------------------------------------------------------------------
+# OS
+# -----------------------------------------------------------------------------
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+# macOS
+.DS_Store
+.localized
+__MACOSX/
+.AppleDouble
+.LSOverride
+Icon?
+._*
+.fseventsd
+.Spotlight-V100
+.Trashes
+.apdisk
+# Linux
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# -----------------------------------------------------------------------------
+# IDE / Editor
+# -----------------------------------------------------------------------------
+# VS Code (keep shared config)
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+*.code-workspace
+# JetBrains (user-level only)
 .idea/
-.vscode/
+*.iml
+*.ipr
+*.iws
+# Eclipse / NetBeans / Sublime
+.metadata
+.settings/
+nbproject/private/
+nbdist/
+.nb-gradle/
+*.sublime-workspace
+# Vim / Neovim
+[._]*.sw[a-p]
+*~
+Session.vim
+.netrwhist
+tags
+# Emacs
+\#*\#
+*.elc
+auto-save-list
+.#*
+.dir-locals.el
+
+# -----------------------------------------------------------------------------
+# AI agent project directories (full list — journal 2026-08-16; one per line)
+# -----------------------------------------------------------------------------
+.hermes/
+.opencode/
+.omp/
+.agents/
+.claude/
+.cursor/
+.windsurf/
+.codex/
+.cline/
+.continue/
+.roo/
+.gemini/
+.amazonq/
+.tabnine/
+.junie/
+.aiassistant/
+.zed/
+.augment/
+.trae/
+.devin/
+.goose/
+.amp/
+.factory/
+.forge/
+.antigravity/
+.bob/
+.autohand/
+.pochi/
+.adal/
+.zencoder/
+.neovate/
+.terramind/
+.codebuddy/
+.codeartsdoer/
+.cortex/
+.crush/
+.commandcode/
+.agent/
+.aider-desk/
+.claude-plugin/
+.skills.json
+skills-lock.json
+.codegraph/
+.sisyphus/*
+!.sisyphus/rules/
