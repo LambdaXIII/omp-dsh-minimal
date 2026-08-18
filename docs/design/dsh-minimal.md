@@ -1,6 +1,6 @@
 # omp-dsh-minimal — dsh minimal 模式的 omp 实现
 
-> 状态：**决策已定（2026-08-18）**。依据 = ①dsh minimal 实证（纯净 persona + 2 工具 → We need 干净推理）+ ②omp 源码实证 + ③**ablation 实测**（工具文本提及破坏锚定、系统约定注入拖慢单轮、零注入多轮犹豫——详见 journal 研究条目）。
+> 状态：**决策已定（2026-08-18）**。依据 = ①dsh minimal 实证（纯净 persona + 2 工具 → We need 干净推理）+ ②omp 源码实证 + ③**ablation 实测**（工具文本提及破坏锚定、系统约定注入拖慢单轮、零注入多轮犹豫）。
 
 ## 文档导航
 
@@ -19,7 +19,7 @@
 
 DeepSeek V4-Pro 的 CoT 对训练分布过拟合（`Let me` 式低质思维链）。dsh minimal（DeepSeek Harness 极简 preset）实证：纯净 persona（`You are a helpful software engineer assistant.`）+ 仅 `bash` + `str_replace_editor` 两工具 → 模型产出干净的 `We need` 式推理（官方基准 99/96 vs 全量 91/92）。
 
-**本插件 = dsh minimal 模式的 omp 实现**（原名 dspro-boost，定位从「V4-Pro 过拟合 booster」转为「极简环境的通用移植」）。**ablation 关键实证**（journal: deepseek-anchor-text-sensitivity）：
+**本插件 = dsh minimal 模式的 omp 实现**（原名 dspro-boost，定位从「V4-Pro 过拟合 booster」转为「极简环境的通用移植」）。**ablation 关键实证**（2026-08-18）：
 - 工具文本提及（消息里出现工具名/描述/schema，即使不可调用）**破坏 We need** 并诱发直接调用——锚定敏感是文本级
 - 系统约定全文注入：We need 保持，单轮稍慢（模型 thinking 检查协议）
 - 零注入：We need 保持 + 单轮最快，但多轮持续犹豫
