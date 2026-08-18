@@ -9,6 +9,11 @@
       "./src/index.ts"
     ]
   },
+  "dependencies": {
+    "@oh-my-pi/omptype": "^17.3.0",
+    "@oh-my-pi/pi-agent-core": "^17.3.0",
+    "@oh-my-pi/pi-tui": "^17.3.0"
+  },
   "devDependencies": {
     "@oh-my-pi/pi-coding-agent": "17.3.5"
   }
