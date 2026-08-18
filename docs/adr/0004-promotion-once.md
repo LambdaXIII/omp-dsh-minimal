@@ -4,4 +4,4 @@ Promotion (bootstrap→full) happens **once per cycle**, triggered **only by the
 
 After promotion the plugin **auto-resets** — there is no persistent switch, and later turns pass through untouched. If the model config stops being pro+High **before** promotion (detected at the next real request), the cycle is **cancelled** and the full tool set restored, so tools never stay stuck minimal.
 
-**Status**: accepted
+**Status**: superseded by [ADR-0005](0005-no-promote-minimal-anchoring.md) — 已由「无 promote 极简锚定」取代
