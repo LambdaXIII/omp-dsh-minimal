@@ -1,5 +1,9 @@
-# Explicit opt-in（检测开关，默认关）
+# Explicit switch（极简开关，手动开/off）
 
-锚定切换极简环境会让 systemPrompt/tools 变化、破坏 KV 前缀缓存（真实每会话成本）。因此要求显式 opt-in：`/dspro-boost`（裸命令）打开**检测开关**（默认关）并便利设置模型/thinking 为 V4-Pro/High。检测开关打开后，插件才在每次真实请求检测 pro+High 条件；匹配则进入极简环境，不匹配则透明。开关关闭（默认）时插件完全透明——**不敲命令，用 pro+High 也不锚定**。无 off 命令（配置变化自然停止）。
+插件是 dsh minimal 模式的 omp 实现（`omp-dsh-minimal`）：手动开启进入极简环境（纯净 persona + `bash` + `str_replace_editor`），手动 `off` 退出。**不监测模型/thinking 配置**——开启后任何模型都工作于极简环境（ADR-0003 已取代）。
+
+- `/dsh-minimal`（裸命令）= 开启 + 便利设模型/thinking 为 V4-Pro/High（纯便利，不改环境语义）
+- `/dsh-minimal off` = 退出：确认对话框 → 恢复完整工具 + persona 回归 omp 标准（下一轮起）→ 警告用户（含 KV 缓存代价提示）→ 下一轮注入退出告知（告知 LLM 极简已退出、忽略历史极简注入）
+- 显式 opt-in 的代价：进入/退出极简会改变 systemPrompt/tools、破坏 KV 前缀缓存（真实每会话成本）——警告中向用户呈现
 
 **Status**: accepted

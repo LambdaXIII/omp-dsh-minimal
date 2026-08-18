@@ -1,25 +1,26 @@
 /**
- * dspro-boost — omp extension implementing minimal-environment anchoring
- * (no promote) for DeepSeek V4-Pro.
+ * omp-dsh-minimal — omp extension implementing the dsh minimal mode:
+ * a clean persona + only bash + str_replace_editor, no promote.
  *
  * This file is the WIRING layer only: it connects the pure logic in ./core
- * (the unit-test seam) to omp events and commands. All behavior decisions
- * (activation, head tracking, dispatch) live in ./core.
+ * (the unit-test seam) to omp events and commands.
  *
- * Final design (2026-08-18):
- * - `/dspro-boost` opens the detection switch (opt-in) and conveniently sets
- *   model/thinking to V4-Pro/High. Anchoring = switch on ∧ pro+High, checked at
- *   every real request; config change stops it naturally.
- * - In the minimal environment the model has only bash + str_replace_editor.
- *   Other tool capabilities flow through bash's `command: string` as
- *   JSON-serialized tool calls; the plugin parses and dispatches them.
- * - Context injection happens only at the session head (no user message yet):
- *   system prompt + full tool catalog (live getAllTools) + a one-line note that
- *   tools can be called as JSON inside bash. Handoff/new clear messages → head
- *   resets → re-injection is natural. Compact re-attaches the injection text
- *   via the session.compacting context hook.
+ * Design (2026-08-18, omp-dsh-minimal):
+ * - `/dsh-minimal` enables an explicit minimal switch (any model; no config
+ *   monitoring) and conveniently sets model/thinking to V4-Pro/High.
+ * - The model stays in the minimal environment for the whole period: persona
+ *   `You are a helpful software engineer assistant.` + 2 tools. No promote.
+ * - Session-head injection = convention file text (AGENTS.md), zero tool text
+ *   (ablation-proven: tool-text mentions break the We-need anchor).
+ * - tool_call is intercepted on ANY tool call; the bash branch handles omp
+ *   internal URLs in the interception point: bash-expanded protocols
+ *   (skill:// local:// artifact:// …) pass through (bash expands them
+ *   natively), xd:// resolves via getAllTools() with the command replaced by
+ *   an echo of the tool description, everything else fails open.
+ * - `/dsh-minimal off`: confirm dialog → restore full tool snapshot → warning
+ *   (KV-cache cost) → one-shot exit notice to the model on the next request.
  *
- * Design: docs/design/anchor-plugin.md · ADRs: docs/adr/0002-0007
+ * Design: docs/design/dsh-minimal.md · ADRs: docs/adr/0002-0007
  * Testing: docs/design/testing.md
  */
 import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
@@ -27,14 +28,17 @@ import { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
 import { Type } from "@oh-my-pi/omptype/typebox";
 import { Container, Text } from "@oh-my-pi/pi-tui";
 import * as fsPromises from "node:fs/promises";
+import { join } from "node:path";
+import { homedir } from "node:os";
 import {
   ANCHOR_TOOLS,
+  BASH_EXPANDED_PROTOCOLS,
   MINIMAL_PERSONA,
   SessionHeadTracker,
-  dispatchTool,
+  ExitNoticeTracker,
+  detectProtocol,
+  extractUrl,
   formatNumberedContent,
-  isProAndHigh,
-  parseToolCall,
 } from "./core";
 
 const DEBUG = process.env.PI_ANCHOR_DEBUG === "1";
@@ -54,24 +58,39 @@ Notes for using the \`str_replace\` command:
 /** Model specs tried by the convenience set-model step, in order. */
 const PRO_MODEL_SPECS = ["deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-pro:high"];
 
+const CUSTOM_TYPE_INJECT = "dsh-minimal-inject";
+const CUSTOM_TYPE_EXIT_NOTICE = "dsh-minimal-exit-notice";
+
+/** Convention files injected at the session head (D6/ADR-0007). */
+const CONVENTION_FILES = ["AGENTS.md"];
+
+const WIDGET_GREEN = "DeepSeek Harness Minimal Mode: Context Injected";
+const WIDGET_RED = "DeepSeek Harness Minimal Mode: Active";
+
+const EXIT_NOTICE_TEXT =
+  "The minimal mode (/dsh-minimal) has been turned off and the full tool environment is restored. Ignore any earlier messages about minimal mode and follow the current system prompt.";
+
 type WidgetState = "off" | "red" | "green";
 
-export default function dsproBoost(pi: ExtensionAPI): void {
+/** Shell-single-quote a string for embedding in a replaced bash command. */
+const shellQuote = (text: string): string => "'" + text.replace(/'/g, "'\\''") + "'";
+
+export default function dshMinimal(pi: ExtensionAPI): void {
   // Logging: key events always land in the omp file log (~/.omp/logs/omp.*.log)
   // via pi.logger (console output would corrupt the TUI). Detail lines only
   // when PI_ANCHOR_DEBUG=1.
   const log = (message: string): void => {
-    pi.logger.info(`[dspro-boost] ${message}`);
+    pi.logger.info(`[dsh-minimal] ${message}`);
   };
   const debug = (message: string): void => {
-    if (DEBUG) pi.logger.debug(`[dspro-boost] ${message}`);
+    if (DEBUG) pi.logger.debug(`[dsh-minimal] ${message}`);
   };
 
-  // Detection switch (opt-in, ADR-0002): `/dspro-boost` turns it on. While off
-  // the plugin is fully transparent; background work still runs.
-  let detectionEnabled = false;
-  // Snapshot of the full tool set taken when entering the minimal environment,
-  // restored when the config no longer matches (D8).
+  // Minimal switch (opt-in, ADR-0002): `/dsh-minimal` turns it on. While off
+  // the plugin is fully transparent (except a one-shot exit notice).
+  let minimalEnabled = false;
+  // Snapshot of the full tool set taken when entering minimal mode, restored
+  // on `/dsh-minimal off` (D8).
   let fullTools: string[] | undefined;
   // Whether the minimal environment is currently active.
   let enteredMinimal = false;
@@ -79,32 +98,23 @@ export default function dsproBoost(pi: ExtensionAPI): void {
   let widgetState: WidgetState = "off";
   // Whether the injection text is currently present in the session context.
   let injectionOk = false;
-  // The last injected text, re-attached to compaction summaries (D10/ADR-0007).
+  // The last injected text, re-attached to compaction summaries (D6/ADR-0007).
   let injectionText = "";
-  // Session-head tracker (D9/ADR-0007).
+  // Session-head tracker (D6/ADR-0007).
   const head = new SessionHeadTracker();
-
-  /** Whether the activation condition (ADR-0003) currently holds. */
-  const isActive = (ctx: ExtensionContext): boolean => {
-    const model = ctx.models.current();
-    const modelId = model?.id ?? model?.name;
-    const level = pi.getThinkingLevel();
-    const active = isProAndHigh(modelId, level);
-    debug(`isActive: model="${modelId}" thinking=${level} -> ${active}`);
-    return active;
-  };
+  // One-shot exit notice state (D8/ADR-0007).
+  const exitNotice = new ExitNoticeTracker();
 
   /** Renders the persistent status widget above the editor (or removes it). */
   const renderFor = (ctx: ExtensionContext): void => {
     if (widgetState === "off") {
-      ctx.ui.setWidget("dspro-boost", undefined);
+      ctx.ui.setWidget("dsh-minimal", undefined);
       return;
     }
     const color = widgetState === "green" ? "success" : "error";
-    const label =
-      widgetState === "green" ? "boost: injected" : "boost: minimal env (not injected)";
+    const label = widgetState === "green" ? WIDGET_GREEN : WIDGET_RED;
     ctx.ui.setWidget(
-      "dspro-boost",
+      "dsh-minimal",
       (_tui, theme) => {
         const container = new Container();
         container.addChild(new Text(theme.fg(color, label), 1, 0));
@@ -120,30 +130,31 @@ export default function dsproBoost(pi: ExtensionAPI): void {
     renderFor(ctx);
   };
 
-  /** Single-quote a string for safe interpolation into a shell command. */
-  const shellQuote = (text: string): string => "'" + text.replace(/'/g, "'\\''") + "'";
-
-  /** Builds the session-head injection message (D9/ADR-0007). */
-  const buildInjection = (systemPrompt: string[]): { customType: string; content: string; display: boolean; attribution: "agent" } => {
-    const tools = pi.getAllTools();
-    const toolBlock = tools
-      .map(t => `### ${t.name}\n${t.description}\n\nSchema: ${JSON.stringify(t.parameters)}`)
-      .join("\n\n");
-    const content = [
-      "以下为系统约定与本环境可用工具的说明。请遵循系统约定。",
-      "在 bash 工具的 command 参数中，可直接以 JSON 序列化形式调用下列工具，例如：",
-      '{"name":"read","arguments":{"path":"src/a.ts"}}',
-      "非 JSON 内容按普通 shell 命令执行。",
-      "",
-      "== 系统约定 ==",
-      systemPrompt.join("\n"),
-      "",
-      "== 可用工具（omp 运行时状态）==",
-      toolBlock,
-    ].join("\n");
+  /**
+   * Builds the session-head injection message (D6/ADR-0007): convention file
+   * text (cwd/AGENTS.md + ~/.omp/agent/AGENTS.md), NOT event.systemPrompt
+   * (which renders tool names/descriptions/policy). Zero tool text. Returns
+   * undefined when no convention file is readable — no injection then.
+   */
+  const buildInjection = async (ctx: ExtensionContext): Promise<{ customType: string; content: string; display: boolean; attribution: "agent" } | undefined> => {
+    const files: string[] = [];
+    for (const name of CONVENTION_FILES) {
+      files.push(join(ctx.cwd, name));
+    }
+    files.push(join(homedir(), ".omp", "agent", "AGENTS.md"));
+    const parts: string[] = [];
+    for (const file of files) {
+      try {
+        const content = await fsPromises.readFile(file, "utf8");
+        if (content.trim()) parts.push(content.trim());
+      } catch {
+        // missing/unreadable convention file: skip, fail-open
+      }
+    }
+    if (parts.length === 0) return undefined;
     return {
-      customType: "dspro-boost-inject",
-      content,
+      customType: CUSTOM_TYPE_INJECT,
+      content: parts.join("\n\n"),
       display: false,
       attribution: "agent",
     };
@@ -256,25 +267,59 @@ export default function dsproBoost(pi: ExtensionAPI): void {
   });
 
   // =========================================================================
-  // Command: /dspro-boost [status]
+  // Command: /dsh-minimal [off|status]
   // =========================================================================
-  pi.registerCommand("dspro-boost", {
+  pi.registerCommand("dsh-minimal", {
     description:
-      "Minimal-environment anchoring for DeepSeek V4-Pro CoT overfitting. Usage: /dspro-boost | /dspro-boost status",
+      "DeepSeek Harness minimal mode for omp: clean persona + bash + str_replace_editor. Usage: /dsh-minimal | /dsh-minimal off | /dsh-minimal status",
     handler: async (args, ctx) => {
       const cmd = (args.trim().split(/\s+/)[0] ?? "").toLowerCase();
-      if (cmd === "status") {
-        const state = !detectionEnabled
-          ? "detection off"
-          : enteredMinimal
-            ? `minimal env active (${injectionOk ? "injected" : "not injected"})`
-            : "detection on, config not pro+High";
-        ctx.ui.notify(`dspro-boost: ${state}`, "info");
+      if (cmd === "off") {
+        if (!minimalEnabled) {
+          ctx.ui.notify("dsh-minimal: not enabled", "info");
+          return;
+        }
+        const ok = await ctx.ui.confirm(
+          "Exit DeepSeek Harness minimal mode?",
+          "Restores the full tool environment and persona. Note: switching tool sets may invalidate the provider KV cache (costs re-warming).",
+        );
+        if (!ok) {
+          log("off: cancelled by user");
+          return;
+        }
+        if (fullTools) {
+          await pi.setActiveTools(fullTools);
+          fullTools = undefined;
+        }
+        enteredMinimal = false;
+        minimalEnabled = false;
+        setWidget("off", ctx);
+        exitNotice.arm();
+        ctx.ui.notify("dsh-minimal: off — full tools restored (KV cache may need re-warming)", "warning");
+        log("off: full tools restored, exit notice armed");
         return;
       }
-      // Bare command: open the detection switch + convenience set model/thinking
-      // to V4-Pro/High (pure convenience; activation still checks actual config).
-      detectionEnabled = true;
+      if (cmd === "status") {
+        const state = !minimalEnabled
+          ? "off"
+          : enteredMinimal
+            ? injectionOk
+              ? "on (injected)"
+              : "on (not injected)"
+            : "on";
+        ctx.ui.notify(`dsh-minimal: ${state}`, "info");
+        return;
+      }
+      if (minimalEnabled) {
+        ctx.ui.notify("dsh-minimal: already on", "info");
+        return;
+      }
+      // Bare command: enable the minimal switch + convenience set model/thinking
+      // to V4-Pro/High (pure convenience; the switch works for any model).
+      // Cancel a pending exit notice: re-enabling before delivery must not
+      // tell the model the opposite of the real state on the next turn.
+      exitNotice.disarm();
+      minimalEnabled = true;
       let resolved;
       for (const spec of PRO_MODEL_SPECS) {
         resolved = ctx.models.resolve(spec);
@@ -283,17 +328,20 @@ export default function dsproBoost(pi: ExtensionAPI): void {
       if (resolved) {
         await pi.setModel(resolved);
       } else {
-        debug("start: could not resolve a V4-Pro model; leaving model as-is");
+        debug("on: could not resolve a V4-Pro model; leaving model as-is");
       }
       pi.setThinkingLevel(ThinkingLevel.High);
-      setWidget(isActive(ctx) ? (injectionOk ? "green" : "red") : "off", ctx);
-      log("detection switch on");
-      ctx.ui.notify("dspro-boost: detection on (model/thinking set to V4-Pro/High)", "info");
+      setWidget("red", ctx);
+      log("on: minimal switch enabled");
+      ctx.ui.notify(
+        "dsh-minimal: on — minimal environment applies from the next message (KV cache may need re-warming)",
+        "info",
+      );
     },
   });
 
   // =========================================================================
-  // Session lifecycle events → head tracker + widget truth (D9/D10/ADR-0007)
+  // Session lifecycle events → head tracker + widget truth (D6/ADR-0007)
   // =========================================================================
   pi.on("session_start", (_event, ctx) => {
     head.onSessionStart();
@@ -313,66 +361,93 @@ export default function dsproBoost(pi: ExtensionAPI): void {
 
   pi.on("session.compacting", (_event) => {
     // Re-attach the injection text to the compaction summary so it survives
-    // the standard compact flow (D10/ADR-0007). Context lines are appended to
+    // the standard compact flow (D6/ADR-0007). Context lines are appended to
     // the summary; the widget stays green only when the text is present.
     return injectionOk ? { context: [injectionText] } : undefined;
   });
 
   // =========================================================================
-  // Per-turn decision point: activate minimal env / inject at head / stop
+  // Per-turn decision point: minimal env / head injection / exit notice
   // =========================================================================
-  pi.on("before_agent_start", async (event, ctx) => {
-    if (!detectionEnabled) return;
-    const active = isActive(ctx);
-    if (!active) {
-      if (enteredMinimal) {
-        if (fullTools) {
-          await pi.setActiveTools(fullTools);
-          fullTools = undefined;
-        }
-        enteredMinimal = false;
-        setWidget("off", ctx);
-        log("config break: restored full tools");
-      }
-      return;
+  pi.on("before_agent_start", async (_event, ctx) => {
+    // Every real request adds a user message to history — consume the head
+    // tracker BEFORE any switch/notice branch so a mid-session enable never
+    // injects at a non-head position (ADR-0007: mid-session enable = no
+    // injection, widget stays red).
+    const wasAtHead = head.atHead;
+    head.onRequestStart();
+    // Exit notice takes priority and is independent of the switch: it fires
+    // once on the first request after a confirmed /dsh-minimal off.
+    if (exitNotice.shouldDeliver()) {
+      exitNotice.consume();
+      log("exit notice: delivered");
+      return {
+        message: {
+          customType: CUSTOM_TYPE_EXIT_NOTICE,
+          content: EXIT_NOTICE_TEXT,
+          display: false,
+          attribution: "agent",
+        },
+      };
     }
-    // Active: ensure the minimal environment (one-time tool switch).
+    if (!minimalEnabled) return;
+    // Enter the minimal environment (one-time tool switch).
     if (!enteredMinimal) {
       fullTools = pi.getActiveTools();
       await pi.setActiveTools([...ANCHOR_TOOLS]);
       enteredMinimal = true;
-      log("anchoring: minimal tools active (bash, str_replace_editor)");
+      log("minimal: active (bash, str_replace_editor)");
     }
-    // Injection only at the session head (no user message yet).
-    const wasAtHead = head.atHead;
-    head.onRequestStart();
     if (wasAtHead) {
-      const message = buildInjection(event.systemPrompt);
-      injectionText = message.content;
-      injectionOk = true;
-      setWidget("green", ctx);
-      log(`injected: systemPrompt + ${pi.getAllTools().length} tool schemas`);
-      return { systemPrompt: [MINIMAL_PERSONA], message };
+      const injection = await buildInjection(ctx);
+      if (injection) {
+        injectionText = injection.content;
+        injectionOk = true;
+        setWidget("green", ctx);
+        log("injected: convention files");
+        return { systemPrompt: [MINIMAL_PERSONA], message: injection };
+      }
+      debug("inject: no convention file readable; skipping");
     }
     if (!injectionOk) setWidget("red", ctx);
     return { systemPrompt: [MINIMAL_PERSONA] };
   });
 
   // =========================================================================
-  // tool_call: JSON-serialized tool calls inside bash (D11/ADR-0006)
+  // tool_call: intercepted on ANY tool call (user's design); the bash branch
+  // handles omp internal URLs (ADR-0006).
+  //
+  // Dispatch happens IN the interception point — no invokeTool delegation
+  // (tool_call ctx has no invokeTool; same-tool-only forbids cross-name):
+  // - bash-expanded protocols (skill/agent/artifact/memory/rule/local) are
+  //   left alone — omp's bash expands them natively (verified in smoke).
+  // - xd:// reads resolve through the official getAllTools() API and the
+  //   command is replaced with an echo of the tool description.
+  // - anything else falls through to native bash (fail-open).
   // =========================================================================
   pi.on("tool_call", async (event) => {
+    debug(`tool_call: ${event.toolName} minimal=${enteredMinimal}`);
+    if (!enteredMinimal) return;
     if (event.toolName !== "bash") return;
-    const command = (event.input as { command?: unknown } | undefined)?.command;
-    if (typeof command !== "string") return;
-    const parsed = parseToolCall(command);
-    if (parsed.kind === "shell") return; // plain shell command → native bash
-    const result = await dispatchTool(parsed.name, parsed.args);
-    const text = result.ok ? (result.content ?? "") : (result.error ?? "tool failed");
-    log(`dispatch: ${parsed.name} -> ${result.ok ? "ok" : "error"}`);
-    // The bash tool cannot return arbitrary text from an interceptor; the
-    // dispatched result is echoed back through a rewritten command so the model
-    // sees it as ordinary tool output.
-    return { input: { command: `echo ${shellQuote(text)}` } };
+    // ToolCallEvent is not a clean discriminated union (CustomToolCallEvent has
+    // a wide toolName), so the narrowing above does not type `input`; guard.
+    if (!("command" in event.input) || typeof event.input.command !== "string") return;
+    const command = event.input.command;
+    const protocol = detectProtocol(command);
+    if (!protocol || BASH_EXPANDED_PROTOCOLS[protocol]) return;
+    const url = extractUrl(command, protocol);
+    if (!url) return;
+    if (protocol === "xd") {
+      const toolName = url.slice("xd://".length);
+      const info = pi.getAllTools().find((t) => t.name === toolName);
+      const text = info
+        ? `xd://${toolName} — ${info.description}`
+        : `xd://${toolName}: unknown tool`;
+      log(`protocol: xd://${toolName} (${info ? "resolved" : "unknown"})`);
+      return { input: { ...event.input, command: `echo ${shellQuote(text)}` } };
+    }
+    // Unresolvable protocol: fall through to native bash (it will report its
+    // own error and the model adapts).
+    debug(`protocol: ${protocol} not resolvable; fail-open`);
   });
 }

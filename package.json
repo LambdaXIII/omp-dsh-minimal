@@ -1,9 +1,9 @@
 {
-  "name": "omp-deepseekpro-booster",
+  "name": "omp-dsh-minimal",
   "version": "0.1.0",
   "type": "module",
   "private": true,
-  "description": "omp extension: two-phase tool anchoring to mitigate DeepSeek V4-Pro CoT overfitting",
+  "description": "omp extension: dsh minimal mode (pure persona + bash + str_replace_editor) to mitigate DeepSeek V4-Pro CoT overfitting",
   "omp": {
     "extensions": [
       "./src/index.ts"
