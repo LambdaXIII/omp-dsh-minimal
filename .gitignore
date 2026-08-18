@@ -18,6 +18,9 @@ build/
 .env
 .env.*
 
+# L3 session exports (not source)
+plugin-*.html
+
 # Editor
 .idea/
 .vscode/

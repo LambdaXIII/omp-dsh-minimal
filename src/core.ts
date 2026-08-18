@@ -5,6 +5,10 @@
  * decided without ExtensionAPI lives here; src/index.ts only wires these
  * functions/classes to omp events and commands.
  *
+ * One-shot anchoring model (D6/D7/D8): a `/dspro-boost` command starts one
+ * anchoring cycle; promotion happens only on the first tool call and the cycle
+ * auto-resets. Cancellation restores the full tool set.
+ *
  * See: docs/design/anchor-plugin.md · docs/adr/0001-0004
  */
 
@@ -34,43 +38,46 @@ export function isProAndHigh(
 }
 
 /**
- * One-time promotion state machine (ADR-0004). Bootstrap → full happens once
- * per active config; a config break calls {@link reset} so the next matching
- * turn re-anchors fresh. Pure state, no omp dependency.
+ * One-shot anchoring cycle (ADR-0004, D6/D7/D8). A command starts the cycle
+ * (anchoring); promotion happens once, triggered only by the first tool call,
+ * and the cycle auto-resets. Pure state, no omp dependency.
  */
-export class AnchorMachine {
-  private _promoted = false;
+export class AnchorCycle {
+  private _anchoring = false;
 
-  /** Whether the machine has been promoted (full phase). */
-  get isPromoted(): boolean {
-    return this._promoted;
+  /** Whether the cycle is currently anchoring (started, not promoted, not reset). */
+  get isAnchoring(): boolean {
+    return this._anchoring;
+  }
+
+  /** Start a one-shot anchoring cycle (bare `/dspro-boost`). */
+  start(): void {
+    this._anchoring = true;
   }
 
   /**
-   * Promote once. Returns true only on the first successful promotion; later
-   * calls are no-ops returning false (promotion is one-time per config).
+   * Promote once, only while anchoring. On success the cycle auto-resets and
+   * returns true (caller must restore the full tool set); otherwise false
+   * (not anchoring, or already promoted/reset). Plain-text replies never call
+   * this — the wiring layer only calls it from the first tool call.
    */
   promoteOnce(): boolean {
-    if (this._promoted) return false;
-    this._promoted = true;
+    if (!this._anchoring) return false;
+    this._anchoring = false;
     return true;
   }
 
-  /** Reset to un-promoted when the activation condition breaks (ADR-0004). */
+  /** Cancel the anchoring cycle (config no longer pro+High) → back to idle. */
   reset(): void {
-    this._promoted = false;
+    this._anchoring = false;
   }
 }
 
 /**
- * Whether the current turn should anchor (bootstrap) — the conjunction of the
- * switch (ADR-0002), the activation condition (ADR-0003), and not-yet-promoted
- * (ADR-0004). `active` is the caller's `isProAndHigh(modelId, thinkingLevel)`.
+ * Whether the current turn should anchor (bootstrap): the cycle is anchoring
+ * (started, not yet promoted) AND the activation condition holds. `active` is
+ * the caller's `isProAndHigh(modelId, thinkingLevel)`.
  */
-export function shouldAnchor(
-  enabled: boolean,
-  active: boolean,
-  isPromoted: boolean,
-): boolean {
-  return enabled && active && !isPromoted;
+export function shouldAnchor(isAnchoring: boolean, active: boolean): boolean {
+  return isAnchoring && active;
 }

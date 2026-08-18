@@ -1,5 +1,7 @@
-# Promotion is one-time, reset on config break
+# One-time promotion (first tool call) + auto-reset + cancellation
 
-Promotion (bootstrap→full) happens **once per active config**, not every turn — re-anchoring every turn would repeatedly invalidate the KV cache. A break in the activation condition (switch off, model changed, thinking changed) resets promotion, so the next matching turn re-anchors fresh. This bounds the cache cost to single, one-way switches while preserving clean-environment planning for each new pro+High segment of a session.
+Promotion (bootstrap→full) happens **once per cycle**, triggered **only by the first tool call** — plain-text replies do not promote. A real-session test showed the initial "first reply or tool call" trigger was too narrow: anchoring only covered the first turn, so the main task ran in the full environment. Restricting promotion to the first tool call keeps the whole thinking/planning phase in the minimal environment.
+
+After promotion the plugin **auto-resets** — there is no persistent switch, and later turns pass through untouched. If the model config stops being pro+High **before** promotion (detected at the next real request), the cycle is **cancelled** and the full tool set restored, so tools never stay stuck minimal.
 
 **Status**: accepted
