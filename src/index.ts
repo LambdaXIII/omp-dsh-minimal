@@ -272,6 +272,23 @@ export default function dshMinimal(pi: ExtensionAPI): void {
   pi.registerCommand("dsh-minimal", {
     description:
       "DeepSeek Harness minimal mode for omp: clean persona + bash + str_replace_editor. Usage: /dsh-minimal | /dsh-minimal off | /dsh-minimal status",
+    getArgumentCompletions: (argumentPrefix) => {
+      const prefix = argumentPrefix.trim().toLowerCase();
+      const options = [
+        {
+          value: "off",
+          label: "off",
+          description: "Exit minimal mode (confirm, restore full tools; KV cache may need re-warming)",
+        },
+        {
+          value: "status",
+          label: "status",
+          description: "Show current switch and injection state",
+        },
+      ];
+      if (!prefix) return options;
+      return options.filter((option) => option.value.startsWith(prefix));
+    },
     handler: async (args, ctx) => {
       const cmd = (args.trim().split(/\s+/)[0] ?? "").toLowerCase();
       if (cmd === "off") {
