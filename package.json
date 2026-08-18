@@ -1,6 +1,6 @@
 {
   "name": "omp-dsh-minimal",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "private": true,
   "description": "omp extension: dsh minimal mode (pure persona + bash + str_replace_editor) to mitigate DeepSeek V4-Pro CoT overfitting",
