@@ -106,8 +106,9 @@ dsh「极简模式」据此设计：纯净 persona + 仅 `bash` + `str_replace_e
 
 裸命令的**便利行为**：开启时顺带 `setModel` + `setThinkingLevel(High)` 设为 V4-Pro/High。这是纯便利，不改变激活逻辑（仍每真实请求检测实际配置）。
 
-**TUI 呈现（widget）**：开启时显示 `boost` 状态条（编辑器上方），组件工厂 + 主题色：
-- 锚定中（条件符合）→ 绿色 `boost: active`
+**TUI 呈现（widget）**：开启时显示 `boost` 状态条（编辑器上方），组件工厂 + 主题色。**widget = 注入状态指示灯**（用户确认 2026-08-18）：
+- **绿色** = 已注入（新会话注入完成，上下文完整）
+- **红色** = 未注入（新会话开启注入前、中途开启、compact 后——仅 minimal 环境）
 - 配置变化停止锚定 → widget 消失
 - 调试 `PI_ANCHOR_DEBUG=1` 输出阶段/实际工具目录/systemPrompt。
 
@@ -129,14 +130,25 @@ dsh「极简模式」据此设计：纯净 persona + 仅 `bash` + `str_replace_e
 
 **注入内容**：`event.systemPrompt` 全文（AGENTS.md、系统指令、工作约定——工具 schema 在 tools 参数不在 systemPrompt，天然不含工具说明）+ **命令告知**（D11：各工具能力作为 bash 命令的用法）。工具 schema 无法通过消息注入（模型只能调 tools 参数里的工具，消息文字描述不可调用）——**工具能力通过 bash 命令分派提供（D11），不依赖工具 schema**。
 
-**注入时机**：第一轮（历史无 user 消息时，仿 eager-todo 检查）。后续轮次历史自动带上，零成本。compact/handoff 后需重新注入（见边界条件）。
+**注入时机**：**仅新会话**（`session_start` 触发，含 handoff 后的新会话）。实现用插件状态机（不依赖读历史）：
+
+```
+session_start → pendingNewSession = true（新会话标记）
+第一个真实请求（before_agent_start）：
+  pendingNewSession = true → 注入 → pendingNewSession = false → widget 绿
+  pendingNewSession = false（会话已进行，如中途开启）→ 不注入 → widget 红
+compact（无 session_start）→ 标记不变 → 不注入
+handoff 后新 session_start → 标记重置 → 注入
+```
+
+**中途开启（会话已进行）→ 不注入**，仅切换 minimal 环境（纯净 persona + 2 schema），widget 红（用户确认 2026-08-18）。注入内容在历史里丢失的场景（compact）**不重新注入**——widget 红反映真实状态（不包含注入）。
 
 ### D10. 边界条件（2026-08-18 调查确认）
 
 | 边界 | 机制事实 | 处理 |
 |---|---|---|
-| **compact 之后** | `session_compact` 事件（含 compactionEntry）；注入的历史消息被压缩成摘要，内容可能丢失/变形 | 监听 `session_compact` → 重置「已注入」标志 → 下一轮 before_agent_start 重新注入 |
-| **handoff 之后** | handoff = session 切换（`session_switch` reason: "handoff"）→ 新会话，注入消息不在 | 监听 `session_start` / `session_switch`(handoff) → 重置标志 → 新会话第一轮重新注入 |
+| **compact 之后** | `session_compact` 事件；注入的历史消息被压缩成摘要，内容丢失/变形 | **不重新注入**（compact 不是新会话，自然行为）——widget 变红反映真实状态 |
+| **handoff 之后** | handoff = session 切换（`session_switch` reason: "handoff"）→ **新会话**（session_start 触发） | **需要注入**——session_start 重置 pendingNewSession 标记 → 新会话第一轮注入 → widget 绿 |
 | **/plan 命令** | plan mode 注入 `plan-mode-context`（每轮），依赖 ask/write/edit/task 等工具 | **plan mode 激活时跳过锚定**（极简工具集会破坏 plan mode 的工具需求） |
 | **子代理会话** | 子代理（agentKind: "sub"）也初始化 extensionRunner 并触发 before_agent_start（task/executor.ts 实证）；继承父会话模型/thinking 配置 | **只应用于主会话**（`ctx.agentKind() === "main"`），子代理跳过（任务委派需完整工具） |
 
@@ -165,7 +177,9 @@ dsh「极简模式」据此设计：纯净 persona + 仅 `bash` + `str_replace_e
 
 **实现路径**：`tool_call` 拦截（检查 bash 调用参数，匹配命令 → block + 返回处理结果）或**自定义 bash 工具**（插件注册 bash，内部分派 + `invokeTool` 委托原生 bash）——用户确认二者无实质区别（都是函数处理命令）。
 
-**转调约束**：扩展无任意工具调用 API（`invokeTool` same-tool only）——命令分派用**翻译**（read→cat、write→echo/cat、edit→sed、glob→ls/find、grep→grep）或**插件自实现**（fs 操作）完成，不依赖转调 API。xd:// 能力（工具发现/文档）同样在分派中处理，模型不需要 read 工具读 xd://。
+**转调约束**：扩展无任意工具调用 API（`invokeTool` same-tool only）——命令分派用**翻译**（read→cat、write→echo/cat、edit→sed、glob→ls/find、grep→grep）或**插件自实现**（fs 操作）完成，不依赖转调 API。
+
+**xd:// 不需要额外判断**（用户确认 2026-08-18）：xd:// 的调用路径 = read/write 工具（`read xd://<tool>` 读文档、`write xd://<tool>` 执行）——锚定期 read/write **不在 schema**（只有 bash + str_replace_editor）→ 模型无法调 read/write → **xd:// 路径天然不可达**。模型的一切工具意图只能通过包装 bash 表达（`read <path>` 翻译命令、`xd <tool>` 工具发现），不存在绕过 bash 直接使用 xd:// 的路径。`xd <tool>` 命令在分派中处理（`getAllTools()` 返回工具文档），无需对 xd:// 协议做特判。
 
 ## 6. 技术约束与风险
 
@@ -188,7 +202,7 @@ dsh「极简模式」据此设计：纯净 persona + 仅 `bash` + `str_replace_e
 1. deepseek-v4-pro 模型标识 + thinking High 枚举：已确认（测试通过）
 2. **无 promote**：全程 bash + str_replace_editor（2 schema 不变），无工具切换（D1/D2）
 3. 锚定工具 = `['bash','str_replace_editor']`，命名对齐 dsh minimal
-4. 上下文披露：第一轮注入 `event.systemPrompt` 全文入历史（D9），仿 eager-todo 检查
+4. 上下文披露：**仅新会话注入**（session_start，含 handoff），pendingNewSession 状态机判定（D9）；中途开启/compact 后不注入（widget 红）
 5. 命令分派：工具能力包装为 bash 命令（read/write/edit/glob/grep/xd），分派逻辑 = tool_call 拦截或自定义 bash 工具（D11）
-6. 边界条件：compact/handoff 后重新注入；plan mode 跳过锚定；子代理跳过锚定（D10）
+6. 边界条件：handoff 注入（新会话）；compact 不注入（同会话）；plan mode 跳过锚定；子代理跳过锚定（D10）
 7. 工具 schema 无法消息注入——工具能力通过 bash 命令分派提供（D11），不依赖 schema
