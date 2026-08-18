@@ -9,8 +9,16 @@ omp 扩展插件，把 DeepSeek Harness 的 minimal preset 移植到 omp：极�
 _Avoid_: 锚定、bootstrap、两阶段
 
 **极简开关（minimal switch）**：
-`/dsh-minimal` 开启、`/dsh-minimal off` 退出的显式开关。开启即极简，**任何模型都工作于同一环境**（不监测模型/thinking 配置）。
+`/dsh-minimal`（裸命令/`on`/`normal` → normal）、`/dsh-minimal pure`（→ pure）、`/dsh-minimal off`（退出）的三态显式开关 `off | normal | pure`。开启即极简，**任何模型都工作于同一环境**（不监测模型/thinking 配置）。
 _Avoid_: 检测开关、激活条件、opt-in 监测
+
+**常规模式（normal mode）**：
+极简开关的默认开启态（`/dsh-minimal`、`on`、`normal` 三者等价）。会话头部注入约定文件（全量注入），维持既有极简语义。
+_Avoid_: 裸命令、仅开启
+
+**纯模式（pure mode）**：
+`/dsh-minimal pure` 进入——极简环境**不注入任何约定**，与 dsh minimal 完全一致，供仅需简单问答、省去注入 token/延迟的场景。与 normal 唯一差异 = 不注入；已注入内容不撤销，纯开关只影响未来动作。
+_Avoid_: 零注入模式、静默模式
 
 **会话头部（session head）**：
 历史中尚无 user 消息的会话起始状态；全量系统约定注入仅在此状态发生。
@@ -29,7 +37,7 @@ _Avoid_: 工具分派、JSON 序列化调用、命令翻译、首词解析
 _Avoid_: 注入清理、历史删除
 
 **widget**：
-编辑器上方状态条；显示/隐藏 = 极简开关；绿 = `DeepSeek Harness Minimal Mode: Context Injected`、红 = `DeepSeek Harness Minimal Mode: Active`（未注入）。
+编辑器上方状态条；显示/隐藏 = 极简开关；绿 = `DeepSeek Harness Minimal Mode: Context Injected`、红 = `DeepSeek Harness Minimal Mode: Active`（normal 未注入）、蓝 = `DeepSeek Harness Minimal Mode: Pure`（pure 恒蓝）。
 _Avoid_: 指示灯、缩写标签、状态机驱动
 
 **KV 缓存代价（KV cache cost）**：

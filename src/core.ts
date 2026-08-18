@@ -25,6 +25,62 @@ export const MINIMAL_PERSONA = "You are a helpful software engineer assistant.";
 /** Minimal tool set exposed during the minimal period (D1). */
 export const ANCHOR_TOOLS: readonly string[] = ["bash", "str_replace_editor"];
 
+/**
+ * Minimal switch mode (ADR-0008): the three-state switch `off | normal | pure`.
+ * A single well-defined value — never stacked. `on`/`normal`/bare command all
+ * target `normal`; `pure` targets `pure`.
+ */
+export type MinimalMode = "off" | "normal" | "pure";
+
+/**
+ * Parsed `/dsh-minimal` command (ADR-0008, contract fixed by spec discussion —
+ * implementers must not change it):
+ * - bare command / on / normal → { action: "enter", mode: "normal" }
+ * - pure → { action: "enter", mode: "pure" }
+ * - off → { action: "exit" }
+ * - status → { action: "status" }
+ * - first arg anything else → { action: "unknown", argument: <that word> }
+ */
+export type Command =
+  | { action: "enter"; mode: "normal" | "pure" }
+  | { action: "exit" }
+  | { action: "status" }
+  | { action: "unknown"; argument: string };
+
+/**
+ * Parse `/dsh-minimal` command arguments into a {@link Command} (ADR-0008).
+ * Only the first whitespace-separated word is considered; the rest are
+ * ignored. Matching is case-insensitive; the `unknown` argument preserves the
+ * original (un-lowercased) first word.
+ */
+export function parseCommand(args: string): Command {
+  const first = args.trim().split(/\s+/)[0] ?? "";
+  switch (first.toLowerCase()) {
+    case "":
+      return { action: "enter", mode: "normal" };
+    case "on":
+    case "normal":
+      return { action: "enter", mode: "normal" };
+    case "pure":
+      return { action: "enter", mode: "pure" };
+    case "off":
+      return { action: "exit" };
+    case "status":
+      return { action: "status" };
+    default:
+      return { action: "unknown", argument: first };
+  }
+}
+
+/**
+ * Whether conventions should be injected for the given mode (ADR-0008).
+ * Only normal mode injects; pure never injects (its whole point) and off is
+ * not an active mode.
+ */
+export function shouldInjectConventions(mode: MinimalMode): boolean {
+  return mode === "normal";
+}
+
 /** `N| line` numbering used by read/str_replace_editor view (aligned to the read tool's style). */
 export function formatNumberedContent(content: string): string {
   return content

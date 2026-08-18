@@ -48,15 +48,16 @@ extensions:
 
 | Command | Behavior |
 |---|---|
-| `/dsh-minimal` | Enable minimal mode (convenience: sets V4-Pro/High; any model becomes minimal once enabled) |
+| `/dsh-minimal` / `on` / `normal` | Enable minimal mode (normal: session-head convention injection; convenience sets V4-Pro/High; any model becomes minimal once enabled) |
+| `/dsh-minimal pure` | Enable minimal mode (pure: no convention injection; otherwise identical to normal) |
 | `/dsh-minimal off` | Exit (confirm dialog → restore full tools → KV-cache-cost warning) |
-| `/dsh-minimal status` | Show current state |
+| `/dsh-minimal status` | Show current state: `off` \| `pure` \| `normal (injected)` \| `normal (not injected)` |
 
-Typing `/dsh-minimal ` (trailing space) triggers argument completion (`off` / `status` with descriptions).
+Typing `/dsh-minimal ` (trailing space) triggers argument completion (`on` / `normal` / `pure` / `off` / `status` with descriptions).
 
-**Effect**: after enabling, the first request of a new session auto-injects the convention files (`AGENTS.md` text, zero tool text); the model keeps only `bash` + `str_replace_editor`; thinking opens with `We need` and stays decisive across turns. Verified on real DeepSeek V4 Pro: `We need` reproduced, high reasoning quality; the cost is slower turns (convention-text injection).
+**Effect**: after enabling normal mode, the first request of a new session auto-injects the convention files (`AGENTS.md` text, zero tool text); pure mode never injects conventions. In both modes the model keeps only `bash` + `str_replace_editor`; thinking opens with `We need` and stays decisive across turns. Verified on real DeepSeek V4 Pro: `We need` reproduced, high reasoning quality; the cost is slower turns (convention-text injection).
 
-**Widget**: status bar above the editor — green = `DeepSeek Harness Minimal Mode: Context Injected`, red = `DeepSeek Harness Minimal Mode: Active` (not injected, e.g. enabled mid-session); gone when off. The switch is not persisted (defaults to off per session).
+**Widget**: status bar above the editor — green = `DeepSeek Harness Minimal Mode: Context Injected` (normal, injected), red = `DeepSeek Harness Minimal Mode: Active` (normal, not injected, e.g. enabled mid-session), blue = `DeepSeek Harness Minimal Mode: Pure` (pure, always blue); gone when off. The switch is not persisted (defaults to off per session).
 
 ## Mechanism
 

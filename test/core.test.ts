@@ -7,6 +7,8 @@ import {
   extractUrl,
   BASH_EXPANDED_PROTOCOLS,
   formatNumberedContent,
+  parseCommand,
+  shouldInjectConventions,
 } from "../src/core";
 
 describe("MINIMAL_PERSONA", () => {
@@ -164,6 +166,47 @@ describe("extractUrl", () => {
 
   test("returns undefined when the protocol is absent", () => {
     expect(extractUrl("cat /tmp/foo.txt", "xd")).toBeUndefined();
+  });
+});
+
+describe("parseCommand", () => {
+  test.each([
+    ["", { action: "enter", mode: "normal" }],
+    ["   ", { action: "enter", mode: "normal" }],
+    ["on", { action: "enter", mode: "normal" }],
+    ["normal", { action: "enter", mode: "normal" }],
+    ["pure", { action: "enter", mode: "pure" }],
+    ["off", { action: "exit" }],
+    ["status", { action: "status" }],
+  ])("parses %j -> %j", (args, expected) => {
+    expect(parseCommand(args as string)).toEqual(expected);
+  });
+
+  test("matches case-insensitively", () => {
+    expect(parseCommand("ON")).toEqual({ action: "enter", mode: "normal" });
+    expect(parseCommand("Pure")).toEqual({ action: "enter", mode: "pure" });
+    expect(parseCommand("OFF")).toEqual({ action: "exit" });
+  });
+
+  test("uses only the first word, ignoring extra args", () => {
+    expect(parseCommand("on extra words")).toEqual({ action: "enter", mode: "normal" });
+    expect(parseCommand("normal --foo")).toEqual({ action: "enter", mode: "normal" });
+    expect(parseCommand("pure whatever")).toEqual({ action: "enter", mode: "pure" });
+    expect(parseCommand("off please")).toEqual({ action: "exit" });
+  });
+
+  test("maps unknown words to unknown with the original argument", () => {
+    expect(parseCommand("foo")).toEqual({ action: "unknown", argument: "foo" });
+    expect(parseCommand("foo bar")).toEqual({ action: "unknown", argument: "foo" });
+    expect(parseCommand("MixedCase")).toEqual({ action: "unknown", argument: "MixedCase" });
+  });
+});
+
+describe("shouldInjectConventions", () => {
+  test("normal injects, pure and off do not", () => {
+    expect(shouldInjectConventions("normal")).toBe(true);
+    expect(shouldInjectConventions("pure")).toBe(false);
+    expect(shouldInjectConventions("off")).toBe(false);
   });
 });
 

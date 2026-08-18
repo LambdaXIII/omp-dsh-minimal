@@ -2,6 +2,15 @@
 
 本文件按**对外行为**记录变更（参照 journal `07-工具脚本设计与集成` 的 CHANGELOG 分类纪律）：修复错误行为记 Fixed、新增功能记 Added、对外行为变化记 Changed；行为不变的重构不记录。
 
+## [Unreleased]
+
+### Added
+
+- 三态极简开关（ADR-0008）：`/dsh-minimal`/`on`/`normal` → normal（会话头部注入约定），`/dsh-minimal pure` → pure（不注入约定，唯一差异），`off`/`status` 语义保留；参数补全增补 `on`/`normal`/`pure`
+- pure 模式：与 normal 唯一差异 = 不注入约定；退出流程、便利设 V4-Pro/High、协议映射、退出告知两模式一致
+- widget 蓝色态：pure 恒 `DeepSeek Harness Minimal Mode: Pure`；normal 保持绿（注入）/红（未注入）
+- `status` 展示 `off` | `pure` | `normal (injected)` | `normal (not injected)`
+
 ## [0.1.0] — 2026-08-19
 
 初始发布。dspro-boost 定位废弃（工具文本注入经 ablation 实证破坏锚定），本版本为 omp 上的 dsh minimal 模式实现。

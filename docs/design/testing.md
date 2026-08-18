@@ -42,7 +42,7 @@ omp --extension ./src/index.ts
 
 ## 4. L1 · 单元测试（agent 完成，必做）
 
-- **范围**：纯逻辑（`src/core.ts` seam）——会话头部状态机（session_start/switch(handoff|new) 重置、请求消费、fork/compact 保持）、`detectProtocol`（各协议串识别、无协议、畸形输入）、`mapVerbToTool`（动词×协议矩阵、无映射放行）、退出状态机（off→确认→恢复→告知标记）
+- **范围**：纯逻辑（`src/core.ts` seam）——命令解析 `parseCommand`（裸命令→normal、`on`/`normal`→normal、`pure`→pure、`off`→exit、`status`→status、未知词→unknown、多余参数仅取首词）、注入判定 `shouldInjectConventions`（normal→true，pure/off→false）、会话头部状态机（session_start/switch(handoff|new) 重置、请求消费、fork/compact 保持）、`detectProtocol`（各协议串识别、无协议、畸形输入）、`mapVerbToTool`（动词×协议矩阵、无映射放行）、退出状态机（off→确认→恢复→告知标记）
 - **方法**：bun test（`bun test`）
 - **验证点**：每种判定分支、矩阵组合、状态转换的确定性输出
 
@@ -52,10 +52,10 @@ omp --extension ./src/index.ts
 
 1. `omp --extension ./src/index.ts` 启动，无加载错误
 2. `/dsh-minimal status` → 默认关闭
-3. `/dsh-minimal` → 极简环境 + widget 出现（红=未注入）
+3. `/dsh-minimal` → 极简环境 + widget 出现（红=未注入）；`/dsh-minimal on`、`/dsh-minimal normal` 行为一致；`/dsh-minimal pure` → 蓝 widget、不注入
 4. 发消息 → 注入完成（widget 绿）、工具卸载、模型回复
 5. 构造 bash 协议调用（`cat local://x`）→ 委托原生工具 → 结果返回
-6. `/dsh-minimal off` → 确认对话框、工具恢复、widget 消失、下一轮退出告知
+6. `/dsh-minimal off` → 确认对话框、工具恢复、widget 消失、下一轮退出告知（从 normal 或 pure 均一致）
 7. 会话无异常
 
 ## 6. L3 · 效果验证（用户执行，必做一次）

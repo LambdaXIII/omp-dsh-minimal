@@ -14,6 +14,7 @@
 - [ADR-0005](docs/adr/0005-no-promote-minimal-anchoring.md) — 无 promote 极简锚定
 - [ADR-0006](docs/adr/0006-bash-protocol-mapping.md) — bash 协议映射（skill:// xd:// local:// 委托 omp 工具）
 - [ADR-0007](docs/adr/0007-injection-and-exit-notice.md) — 会话头部全量注入 + 退出告知
+- [ADR-0008](docs/adr/0008-dual-mode-pure-normal.md) — 双模式开关（pure / normal）
 
 ## 1. 背景与定位
 
@@ -29,10 +30,14 @@ DeepSeek V4-Pro 的 CoT 对训练分布过拟合（`Let me` 式低质思维链�
 ## 2. 核心机制
 
 ```
-/dsh-minimal（裸命令，开启极简开关）
+/dsh-minimal | /dsh-minimal on | /dsh-minimal normal（开启极简开关 → normal）
    → 便利设模型/thinking = V4-Pro/High（纯便利，不绑定）
    → 极简环境：setActiveTools(['bash','str_replace_editor']) + persona 覆盖纯净
    → 会话头部（历史无 user 消息）→ 全量注入约定文件（AGENTS.md 原文，零工具文本）
+/dsh-minimal pure（开启极简开关 → pure）
+   → 便利设模型/thinking = V4-Pro/High（纯便利，不绑定）
+   → 极简环境：setActiveTools(['bash','str_replace_editor']) + persona 覆盖纯净
+   → 永不注入约定（与 normal 唯一差异）
    → 模型用 bash 原生命令（cat/ls/sed）干活；内部 URL（skill:// xd:// local:// 等）
      在工具调用拦截点内部分派（ADR-0006）
    → 开启期间任何模型都极简（无监测，ADR-0003）
@@ -54,9 +59,9 @@ DeepSeek V4-Pro 的 CoT 对训练分布过拟合（`Let me` 式低质思维链�
 
 开启即极简，任何模型/thinking。便利命令仍切 V4-Pro/High（主要使用场景）。
 
-### D4. 极简开关（ADR-0002）
+### D4. 极简开关（ADR-0002/0008）
 
-`/dsh-minimal`（开启 + 便利切配置）、`/dsh-minimal off`（退出 + 确认对话框）、`/dsh-minimal status`（查看）。**不监测配置**——退出只能显式 off。KV 缓存代价在 off 警告与开启信息中呈现。**不持久化开关**——session 重启默认关闭，用户重新 `/dsh-minimal`。
+三态 `off | normal | pure`：`/dsh-minimal`（裸命令）/`on`/`normal` → normal（开启 + 便利切配置 + 会话头部注入约定）；`/dsh-minimal pure` → pure（开启 + 便利切配置，**永不注入约定**——与 normal 唯一差异）；`/dsh-minimal off`（退出 + 确认对话框）；`/dsh-minimal status`（查看）。**不监测配置**——退出只能显式 off。KV 缓存代价在 off 警告与开启信息中呈现。**不持久化开关**——session 重启默认关闭，用户重新 `/dsh-minimal`。
 
 ### D5. persona 作用域 → 极简期间全程
 
@@ -85,7 +90,7 @@ DeepSeek V4-Pro 的 CoT 对训练分布过拟合（`Let me` 式低质思维链�
 
 ### D9. widget
 
-完整描述句文案（非缩写）：绿 = `DeepSeek Harness Minimal Mode: Context Injected`；红 = `DeepSeek Harness Minimal Mode: Active`（未注入）。显示 = 开关开启；off 消失。红/绿消费真实注入状态。
+完整描述句文案（非缩写）：绿 = `DeepSeek Harness Minimal Mode: Context Injected`；红 = `DeepSeek Harness Minimal Mode: Active`（normal 未注入）；蓝 = `DeepSeek Harness Minimal Mode: Pure`（pure 恒蓝，无注入态之分）。显示 = 开关开启；off 消失。normal 红/绿消费真实注入状态；pure 恒蓝。
 
 ## 4. 技术事实（omp 源码实证）
 

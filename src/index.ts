@@ -39,6 +39,9 @@ import {
   detectProtocol,
   extractUrl,
   formatNumberedContent,
+  parseCommand,
+  shouldInjectConventions,
+  type MinimalMode,
 } from "./core";
 
 const DEBUG = process.env.PI_ANCHOR_DEBUG === "1";
@@ -66,11 +69,12 @@ const CONVENTION_FILES = ["AGENTS.md"];
 
 const WIDGET_GREEN = "DeepSeek Harness Minimal Mode: Context Injected";
 const WIDGET_RED = "DeepSeek Harness Minimal Mode: Active";
+const WIDGET_BLUE = "DeepSeek Harness Minimal Mode: Pure";
 
 const EXIT_NOTICE_TEXT =
   "The minimal mode (/dsh-minimal) has been turned off and the full tool environment is restored. Ignore any earlier messages about minimal mode and follow the current system prompt.";
 
-type WidgetState = "off" | "red" | "green";
+type WidgetState = "off" | "red" | "green" | "blue";
 
 /** Shell-single-quote a string for embedding in a replaced bash command. */
 const shellQuote = (text: string): string => "'" + text.replace(/'/g, "'\\''") + "'";
@@ -86,9 +90,10 @@ export default function dshMinimal(pi: ExtensionAPI): void {
     if (DEBUG) pi.logger.debug(`[dsh-minimal] ${message}`);
   };
 
-  // Minimal switch (opt-in, ADR-0002): `/dsh-minimal` turns it on. While off
-  // the plugin is fully transparent (except a one-shot exit notice).
-  let minimalEnabled = false;
+  // Minimal switch (opt-in, ADR-0002/0008): three-state `off | normal | pure`.
+  // `/dsh-minimal`/`on`/`normal` → normal; `pure` → pure; `off` exits. While
+  // off the plugin is fully transparent (except a one-shot exit notice).
+  let minimalMode: MinimalMode = "off";
   // Snapshot of the full tool set taken when entering minimal mode, restored
   // on `/dsh-minimal off` (D8).
   let fullTools: string[] | undefined;
@@ -111,8 +116,9 @@ export default function dshMinimal(pi: ExtensionAPI): void {
       ctx.ui.setWidget("dsh-minimal", undefined);
       return;
     }
-    const color = widgetState === "green" ? "success" : "error";
-    const label = widgetState === "green" ? WIDGET_GREEN : WIDGET_RED;
+    const color = widgetState === "green" ? "success" : widgetState === "blue" ? "accent" : "error";
+    const label =
+      widgetState === "green" ? WIDGET_GREEN : widgetState === "blue" ? WIDGET_BLUE : WIDGET_RED;
     ctx.ui.setWidget(
       "dsh-minimal",
       (_tui, theme) => {
@@ -128,6 +134,23 @@ export default function dshMinimal(pi: ExtensionAPI): void {
   const setWidget = (state: WidgetState, ctx: ExtensionContext): void => {
     widgetState = state;
     renderFor(ctx);
+  };
+
+  /**
+   * The widget state that truthfully reflects the current mode + injection:
+   * - off → no widget
+   * - pure → always blue (no injection concept)
+   * - normal → green when conventions injected, red otherwise
+   */
+  const widgetFor = (): WidgetState => {
+    if (minimalMode === "off") return "off";
+    if (minimalMode === "pure") return "blue";
+    return injectionOk ? "green" : "red";
+  };
+
+  /** Recompute the widget from current mode/injection truth and repaint. */
+  const refreshWidget = (ctx: ExtensionContext): void => {
+    setWidget(widgetFor(), ctx);
   };
 
   /**
@@ -267,14 +290,29 @@ export default function dshMinimal(pi: ExtensionAPI): void {
   });
 
   // =========================================================================
-  // Command: /dsh-minimal [off|status]
+  // Command: /dsh-minimal [on|normal|pure|off|status]
   // =========================================================================
   pi.registerCommand("dsh-minimal", {
     description:
-      "DeepSeek Harness minimal mode for omp: clean persona + bash + str_replace_editor. Usage: /dsh-minimal | /dsh-minimal off | /dsh-minimal status",
+      "DeepSeek Harness minimal mode for omp: clean persona + bash + str_replace_editor. Usage: /dsh-minimal | /dsh-minimal on | /dsh-minimal normal | /dsh-minimal pure | /dsh-minimal off | /dsh-minimal status",
     getArgumentCompletions: (argumentPrefix) => {
       const prefix = argumentPrefix.trim().toLowerCase();
       const options = [
+        {
+          value: "on",
+          label: "on",
+          description: "Enable minimal mode (normal): session-head convention injection, V4-Pro/High",
+        },
+        {
+          value: "normal",
+          label: "normal",
+          description: "Enable minimal mode (normal): session-head convention injection, V4-Pro/High",
+        },
+        {
+          value: "pure",
+          label: "pure",
+          description: "Enable minimal mode (pure): no convention injection, V4-Pro/High",
+        },
         {
           value: "off",
           label: "off",
@@ -290,70 +328,93 @@ export default function dshMinimal(pi: ExtensionAPI): void {
       return options.filter((option) => option.value.startsWith(prefix));
     },
     handler: async (args, ctx) => {
-      const cmd = (args.trim().split(/\s+/)[0] ?? "").toLowerCase();
-      if (cmd === "off") {
-        if (!minimalEnabled) {
-          ctx.ui.notify("dsh-minimal: not enabled", "info");
+      const command = parseCommand(args);
+      switch (command.action) {
+        case "unknown":
+          ctx.ui.notify(
+            `dsh-minimal: unknown argument "${command.argument}" — use on/normal/pure/off/status`,
+            "info",
+          );
+          return;
+        case "status": {
+          const state =
+            minimalMode === "off"
+              ? "off"
+              : minimalMode === "pure"
+                ? "pure"
+                : enteredMinimal
+                  ? injectionOk
+                    ? "normal (injected)"
+                    : "normal (not injected)"
+                  : "normal (not injected)";
+          ctx.ui.notify(`dsh-minimal: ${state}`, "info");
           return;
         }
-        const ok = await ctx.ui.confirm(
-          "Exit DeepSeek Harness minimal mode?",
-          "Restores the full tool environment and persona. Note: switching tool sets may invalidate the provider KV cache (costs re-warming).",
-        );
-        if (!ok) {
-          log("off: cancelled by user");
+        case "exit": {
+          if (minimalMode === "off") {
+            ctx.ui.notify("dsh-minimal: not enabled", "info");
+            return;
+          }
+          const ok = await ctx.ui.confirm(
+            "Exit DeepSeek Harness minimal mode?",
+            "Restores the full tool environment and persona. Note: switching tool sets may invalidate the provider KV cache (costs re-warming).",
+          );
+          if (!ok) {
+            log("off: cancelled by user");
+            return;
+          }
+          if (fullTools) {
+            await pi.setActiveTools(fullTools);
+            fullTools = undefined;
+          }
+          enteredMinimal = false;
+          minimalMode = "off";
+          setWidget("off", ctx);
+          exitNotice.arm();
+          ctx.ui.notify("dsh-minimal: off — full tools restored (KV cache may need re-warming)", "warning");
+          log("off: full tools restored, exit notice armed");
           return;
         }
-        if (fullTools) {
-          await pi.setActiveTools(fullTools);
-          fullTools = undefined;
+        case "enter": {
+          const { mode } = command;
+          // already-on: same mode requested again is a no-op with feedback.
+          if (minimalMode === mode) {
+            ctx.ui.notify(
+              mode === "pure" ? "dsh-minimal: already in pure mode" : "dsh-minimal: already on",
+              "info",
+            );
+            return;
+          }
+          // Re-enabling moves to the requested mode (normal/pure) — a single
+          // well-defined value, never stacked. Cancel a pending exit notice:
+          // re-enabling before delivery must not tell the model the opposite
+          // of the real state on the next turn.
+          exitNotice.disarm();
+          minimalMode = mode;
+          // Convenience set model/thinking to V4-Pro/High (pure convenience;
+          // the switch works for any model; both modes do this identically).
+          let resolved;
+          for (const spec of PRO_MODEL_SPECS) {
+            resolved = ctx.models.resolve(spec);
+            if (resolved) break;
+          }
+          if (resolved) {
+            await pi.setModel(resolved);
+          } else {
+            debug("on: could not resolve a V4-Pro model; leaving model as-is");
+          }
+          pi.setThinkingLevel(ThinkingLevel.High);
+          setWidget(mode === "pure" ? "blue" : "red", ctx);
+          log(`on: minimal switch enabled (${mode})`);
+          ctx.ui.notify(
+            mode === "pure"
+              ? "dsh-minimal: pure — minimal environment applies from the next message (KV cache may need re-warming)"
+              : "dsh-minimal: on — minimal environment applies from the next message (KV cache may need re-warming)",
+            "info",
+          );
+          return;
         }
-        enteredMinimal = false;
-        minimalEnabled = false;
-        setWidget("off", ctx);
-        exitNotice.arm();
-        ctx.ui.notify("dsh-minimal: off — full tools restored (KV cache may need re-warming)", "warning");
-        log("off: full tools restored, exit notice armed");
-        return;
       }
-      if (cmd === "status") {
-        const state = !minimalEnabled
-          ? "off"
-          : enteredMinimal
-            ? injectionOk
-              ? "on (injected)"
-              : "on (not injected)"
-            : "on";
-        ctx.ui.notify(`dsh-minimal: ${state}`, "info");
-        return;
-      }
-      if (minimalEnabled) {
-        ctx.ui.notify("dsh-minimal: already on", "info");
-        return;
-      }
-      // Bare command: enable the minimal switch + convenience set model/thinking
-      // to V4-Pro/High (pure convenience; the switch works for any model).
-      // Cancel a pending exit notice: re-enabling before delivery must not
-      // tell the model the opposite of the real state on the next turn.
-      exitNotice.disarm();
-      minimalEnabled = true;
-      let resolved;
-      for (const spec of PRO_MODEL_SPECS) {
-        resolved = ctx.models.resolve(spec);
-        if (resolved) break;
-      }
-      if (resolved) {
-        await pi.setModel(resolved);
-      } else {
-        debug("on: could not resolve a V4-Pro model; leaving model as-is");
-      }
-      pi.setThinkingLevel(ThinkingLevel.High);
-      setWidget("red", ctx);
-      log("on: minimal switch enabled");
-      ctx.ui.notify(
-        "dsh-minimal: on — minimal environment applies from the next message (KV cache may need re-warming)",
-        "info",
-      );
     },
   });
 
@@ -364,7 +425,7 @@ export default function dshMinimal(pi: ExtensionAPI): void {
     head.onSessionStart();
     injectionOk = false;
     debug("session_start: head reset");
-    if (enteredMinimal) setWidget("red", ctx);
+    if (enteredMinimal) refreshWidget(ctx);
   });
 
   pi.on("session_switch", (event, ctx) => {
@@ -372,7 +433,7 @@ export default function dshMinimal(pi: ExtensionAPI): void {
     if (event.reason === "handoff" || event.reason === "new") {
       injectionOk = false;
       debug(`session_switch(${event.reason}): head reset`);
-      if (enteredMinimal) setWidget("red", ctx);
+      if (enteredMinimal) refreshWidget(ctx);
     }
   });
 
@@ -407,7 +468,7 @@ export default function dshMinimal(pi: ExtensionAPI): void {
         },
       };
     }
-    if (!minimalEnabled) return;
+    if (minimalMode === "off") return;
     // Enter the minimal environment (one-time tool switch).
     if (!enteredMinimal) {
       fullTools = pi.getActiveTools();
@@ -415,7 +476,9 @@ export default function dshMinimal(pi: ExtensionAPI): void {
       enteredMinimal = true;
       log("minimal: active (bash, str_replace_editor)");
     }
-    if (wasAtHead) {
+    // Injection is the ONLY difference between normal and pure (ADR-0008):
+    // normal injects at the session head, pure never injects.
+    if (wasAtHead && shouldInjectConventions(minimalMode)) {
       const injection = await buildInjection(ctx);
       if (injection) {
         injectionText = injection.content;
@@ -426,7 +489,7 @@ export default function dshMinimal(pi: ExtensionAPI): void {
       }
       debug("inject: no convention file readable; skipping");
     }
-    if (!injectionOk) setWidget("red", ctx);
+    if (!injectionOk) refreshWidget(ctx);
     return { systemPrompt: [MINIMAL_PERSONA] };
   });
 
