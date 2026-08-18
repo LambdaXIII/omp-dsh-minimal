@@ -4,7 +4,7 @@ DeepSeek Harness **minimal 模式**的 omp 实现：纯净 persona + 仅 `bash` 
 
 ## 为什么
 
-DeepSeek V4-Pro 的 CoT 对训练分布过拟合：进入 `Let me` 式思维链后推理质量崩。dsh minimal（DeepSeek Harness 极简 preset）实证：极简环境产出干净的 `We need` 式推理（官方基准 99/96 vs 全量 91/92）。omp 无此模式，本插件补上。
+DeepSeek V4-Pro 的 CoT 对训练分布过拟合：进入 `Let me` 式思维链后推理质量崩。dsh minimal（DeepSeek Harness 极简 preset）实证：极简环境产出干净的 `We need` 式推理（第三方评测：xiaobright 自建 Project2 V4.1b 套件上，DeepSeek-V4-Pro 正式版在 DSH minimal 下两跑 99/96、DSH standard 91、DSH PTC 92——小样本观测，非 DeepSeek 官方 benchmark，未被独立复现。[成绩榜](https://github.com/xiaobright/modeltest/blob/main/evaluator/reports/v4.1b_scoreboard.md) / [对照分析](https://github.com/xiaobright/modeltest/blob/main/docs/v4.1/DEEPSEEK_V4_PRO_HARNESS_ANALYSIS_20260814.md)）。omp 无此模式，本插件补上。
 
 **关键约束（ablation 实测，2026-08-18）**：工具文本提及（消息里出现工具名/描述/schema，即使不可调用）破坏 `We need` 并诱发模型直接调用不可调用工具——极简环境必须**零工具文本**。因此本插件不注入工具 schema、不注入工具提及。
 

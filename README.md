@@ -4,7 +4,7 @@ DeepSeek Harness **minimal mode** for omp: a clean persona plus only `bash` and 
 
 ## Why
 
-DeepSeek V4-Pro's CoT overfits to its training distribution: once it enters a `Let me`-style reasoning chain, inference quality collapses. dsh minimal (DeepSeek Harness's minimal preset) demonstrates that a minimal environment produces clean `We need`-style reasoning (official benchmark 99/96 vs 91/92 full). omp has no such mode; this extension adds it.
+DeepSeek V4-Pro's CoT overfits to its training distribution: once it enters a `Let me`-style reasoning chain, inference quality collapses. dsh minimal (DeepSeek Harness's minimal preset) demonstrates that a minimal environment produces clean `We need`-style reasoning (third-party eval: DeepSeek-V4-Pro scored 99/96 on DSH minimal, 91 on DSH standard, 92 on DSH PTC on xiaobright's Project2 V4.1b suite — small-sample observations, not an official DeepSeek benchmark, not independently reproduced. [scoreboard](https://github.com/xiaobright/modeltest/blob/main/evaluator/reports/v4.1b_scoreboard.md) / [analysis](https://github.com/xiaobright/modeltest/blob/main/docs/v4.1/DEEPSEEK_V4_PRO_HARNESS_ANALYSIS_20260814.md)). omp has no such mode; this extension adds it.
 
 **Key constraint (ablation-tested, 2026-08-18)**: mentioning tool text — tool names, descriptions, or schemas in messages, even when not callable — breaks `We need` and triggers the model to call non-callable tools. The minimal environment must stay **zero tool text**. This extension therefore injects no tool schema and no tool mentions.
 

@@ -17,7 +17,7 @@
 
 ## 1. 背景与定位
 
-DeepSeek V4-Pro 的 CoT 对训练分布过拟合（`Let me` 式低质思维链）。dsh minimal（DeepSeek Harness 极简 preset）实证：纯净 persona（`You are a helpful software engineer assistant.`）+ 仅 `bash` + `str_replace_editor` 两工具 → 模型产出干净的 `We need` 式推理（官方基准 99/96 vs 全量 91/92）。
+DeepSeek V4-Pro 的 CoT 对训练分布过拟合（`Let me` 式低质思维链）。dsh minimal（DeepSeek Harness 极简 preset）实证：纯净 persona（`You are a helpful software engineer assistant.`）+ 仅 `bash` + `str_replace_editor` 两工具 → 模型产出干净的 `We need` 式推理（第三方评测：xiaobright 自建 Project2 V4.1b 套件上，DeepSeek-V4-Pro 正式版在 DSH minimal 下两跑 99/96、DSH standard 91、DSH PTC 92——小样本观测，非 DeepSeek 官方 benchmark，未被独立复现。[成绩榜](https://github.com/xiaobright/modeltest/blob/main/evaluator/reports/v4.1b_scoreboard.md) / [对照分析](https://github.com/xiaobright/modeltest/blob/main/docs/v4.1/DEEPSEEK_V4_PRO_HARNESS_ANALYSIS_20260814.md)）。
 
 **本插件 = dsh minimal 模式的 omp 实现**（原名 dspro-boost，定位从「V4-Pro 过拟合 booster」转为「极简环境的通用移植」）。**ablation 关键实证**（2026-08-18）：
 - 工具文本提及（消息里出现工具名/描述/schema，即使不可调用）**破坏 We need** 并诱发直接调用——锚定敏感是文本级
