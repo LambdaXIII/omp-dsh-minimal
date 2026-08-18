@@ -43,9 +43,18 @@ omp -e ~/omp-dsh-minimal
 # --no-extensions 关闭自动发现，显式 -e 仍生效
 ```
 
-**方式四：作为插件包**
+**方式四：插件包（`omp plugin` 自动安装，最省事）**
 
-带 `package.json` 且声明 `"omp": { "extensions": [...] }`（`pi.extensions` 兼容旧键）的包，入口经 `getAllPluginExtensionPaths` 发现——本仓库即此形态（声明 `./src/index.ts`）。
+omp 有插件分发体系（`omp plugin install/uninstall/list/upgrade/marketplace`）——按标识安装到 `~/.omp/plugins/`，扩展入口经 `getAllPluginExtensionPaths` 自动发现，**无需配置**：
+
+```bash
+omp plugin install github:LambdaXIII/omp-dsh-minimal
+# 或固定版本：omp plugin install "github:LambdaXIII/omp-dsh-minimal#<commit>"
+```
+
+支持标识形态：npm 包名（`@oh-my-pi/exa`）、`name@marketplace`、`github:user/repo`、`https://github.com/user/repo#v1.0`、本地路径（link）。`omp plugin marketplace add <source>` 添加自定义市场。本仓库即插件包形态（`package.json` 声明 `"omp": { "extensions": [...] }`，运行时依赖在 `dependencies` 供 npm/bun 安装）。
+
+> 提示：`github:user/repo`（无 commit）依赖 bun 的分支解析缓存，个别情况下会拉到旧 commit——遇到时用 `#<commit>` 固定或 `omp plugin upgrade`。
 
 **关键细节**：
 - 禁用单个：`disabledExtensions: [extension-module:<名字>]`（名字取自路径：`foo.ts` → `foo`，`foo/index.ts` → `foo`）
