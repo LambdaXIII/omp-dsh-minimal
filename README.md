@@ -10,30 +10,48 @@ DeepSeek V4-Pro 的 CoT 对训练分布过拟合：进入 `Let me` 式思维链�
 
 ## 安装
 
-前提：已安装 `omp` 与 `bun`。运行时依赖经 `@oh-my-pi/pi-coding-agent` 传递覆盖（`bun install` 一次装全）。
-
-**方式一（推荐）：clone + 目录加载**
+omp 没有 `plugins install` 类命令——「安装」= 把扩展模块放到发现目录或配置里，启动时自动加载。扩展是 TS/JS 模块，导出默认工厂（`export default function (pi: ExtensionAPI) {}`）。前提：已安装 `omp` 与 `bun`；运行时依赖经 `@oh-my-pi/pi-coding-agent` 传递覆盖（`bun install` 一次装全）。
 
 ```bash
 git clone https://github.com/LambdaXIII/omp-dsh-minimal ~/omp-dsh-minimal
 cd ~/omp-dsh-minimal && bun install
-omp --extension ~/omp-dsh-minimal
 ```
 
-`--extension` 接受目录：读取 `package.json` 的 `omp.extensions` 声明（`./src/index.ts`）。
-
-**方式二：用户级扩展目录（全局常驻，自动发现）**
+**方式一：自动发现目录（最常用）**
 
 ```bash
-git clone https://github.com/LambdaXIII/omp-dsh-minimal ~/.omp/agent/extensions/omp-dsh-minimal
-cd ~/.omp/agent/extensions/omp-dsh-minimal && bun install
+# 全局（常驻）
+ln -s ~/omp-dsh-minimal ~/.omp/agent/extensions/omp-dsh-minimal
+# 或项目级
+ln -s ~/omp-dsh-minimal <项目>/.omp/extensions/omp-dsh-minimal
 ```
 
-omp 启动时扫描 `~/.omp/agent/extensions/`（`<ext>/package.json` 带 `omp` 字段即加载），无需 `--extension`。也支持 symlink（`ln -s ~/omp-dsh-minimal ~/.omp/agent/extensions/omp-dsh-minimal`）。
+放进去的 `.ts`/`.js` 文件或目录（`foo/index.ts`）启动时自动加载。
 
-**方式三：项目级**
+**方式二：config.yml 配置路径**
 
-克隆到项目 `.omp/extensions/omp-dsh-minimal/`（同自动发现），或 `~/.omp/agent/settings.json` / 项目 `.omp/settings.json` 的 `extensions` 数组列路径。
+```yaml
+# ~/.omp/agent/config.yml（或 <项目>/.omp/config.yml）
+extensions:
+  - ~/omp-dsh-minimal
+```
+
+**方式三：CLI 显式加载（临时/一次性）**
+
+```bash
+omp -e ~/omp-dsh-minimal
+# --no-extensions 关闭自动发现，显式 -e 仍生效
+```
+
+**方式四：作为插件包**
+
+带 `package.json` 且声明 `"omp": { "extensions": [...] }`（`pi.extensions` 兼容旧键）的包，入口经 `getAllPluginExtensionPaths` 发现——本仓库即此形态（声明 `./src/index.ts`）。
+
+**关键细节**：
+- 禁用单个：`disabledExtensions: [extension-module:<名字>]`（名字取自路径：`foo.ts` → `foo`，`foo/index.ts` → `foo`）
+- 加载顺序：自动发现 → hook 工厂 → 插件包入口 → 显式配置路径；按绝对路径去重，先到先得
+- 扩展是统一体系（事件 + 工具 + 命令 + 渲染器）；hook 是遗留事件 API，custom-tools 是纯工具模块——插件用扩展体系
+- 扩展不沙箱、与进程同运行；工厂加载期只能注册，运行时行为放事件/命令/工具里
 
 ## 快速开始
 
