@@ -48,30 +48,43 @@ extensions:
 
 | Command | Behavior |
 |---|---|
-| `/dsh-minimal` / `on` / `normal` | Enable minimal mode (normal: session-head convention injection; convenience sets V4-Pro/High; any model becomes minimal once enabled) |
-| `/dsh-minimal pure` | Enable minimal mode (pure: no convention injection; otherwise identical to normal) |
+| `/dsh-minimal` | Show status (bare command = status; does **not** enable) |
+| `/dsh-minimal on` / `normal` | Enable minimal mode (normal: full disclosure — header + Internal URLs + xd protocol block + AGENTS + APPEND_SYSTEM; convenience sets V4-Pro/High; any model becomes minimal once enabled) |
+| `/dsh-minimal pure` | Enable minimal mode (pure: AGENTS only, no environment/discipline layer) |
 | `/dsh-minimal off` | Exit (confirm dialog → restore full tools → KV-cache-cost warning) |
-| `/dsh-minimal status` | Show current state: `off` \| `pure` \| `normal (injected)` \| `normal (not injected)` |
+| `/dsh-minimal status` | Show state + versions: `off` \| `normal (injected)` \| `normal (not injected)` \| `pure (injected)` \| `pure (not injected)`, plus plugin / actual omp / required omp (≥18) versions |
 
 Typing `/dsh-minimal ` (trailing space) triggers argument completion (`on` / `normal` / `pure` / `off` / `status` with descriptions).
 
-**Effect**: after enabling normal mode, the first request of a new session auto-injects the convention files (`AGENTS.md` text, zero tool text); pure mode never injects conventions. In both modes the model keeps only `bash` + `str_replace_editor`; thinking opens with `We need` and stays decisive across turns. Verified on real DeepSeek V4 Pro: `We need` reproduced, high reasoning quality; the cost is slower turns (convention-text injection).
+**Effect**: after enabling a mode, the first request of a new session auto-injects the disclosure for that mode — normal injects the full set (header + `# Internal URLs` + xd protocol block + AGENTS + APPEND_SYSTEM, all reused from omp's own rendering, zero tool text); pure injects AGENTS only (no environment/discipline layer). In both modes the model keeps `bash` + `str_replace_editor` (see the inspect_image note below for the one omp-forced exception); thinking opens with `We need` and stays decisive across turns. Verified on real DeepSeek V4 Pro: `We need` reproduced, high reasoning quality; the cost is slower turns (disclosure injection).
 
-**Widget**: status bar above the editor — green = `DeepSeek Harness Minimal Mode: Context Injected` (normal, injected), red = `DeepSeek Harness Minimal Mode: Active` (normal, not injected, e.g. enabled mid-session), blue = `DeepSeek Harness Minimal Mode: Pure` (pure, always blue); gone when off. The switch is not persisted (defaults to off per session).
+**Widget**: status bar above the editor — green = `DeepSeek Harness Minimal Mode: Context Injected` (normal, injected), blue = `DeepSeek Harness Minimal Mode: Pure` (pure, injected), red = `DeepSeek Harness Minimal Mode: Active` (either mode enabled but not injected, e.g. enabled mid-session); gone when off. The switch is not persisted (defaults to off per session).
+
+## Known behavior: `inspect_image` stays in the minimal tool set
+
+omp force-activates `inspect_image` for models without native image input: the default `inspect_image.mode: auto` exposes it exactly when `model.input` lacks `"image"`, and omp's `reconcileInspectImageTool` re-adds it on every model/settings change, ignoring `setActiveTools`. DeepSeek V4 models have no image input, so in minimal mode the **effective tool set is `bash`, `str_replace_editor`, and `inspect_image`** — not the two declared in this README. The plugin cannot remove it (no extension API sets `inspect_image.mode`). To drop it, set it globally:
+
+```yaml
+# ~/.omp/agent/config.yml
+inspect_image:
+  mode: off
+```
+
+The disclosure contract (what normal vs pure inject) is defined in `docs/adr/0009-mode-disclosure-contract.md`.
 
 ## Mechanism
 
-- **Minimal environment**: every turn injects the clean persona (`You are a helpful software engineer assistant.`) + only 2 tools; no promote, no model monitoring
-- **Session-head injection**: first request (no user message in history) injects convention-file text; compaction keeps it via the official hook; handoff/new clears messages and re-injects naturally; **enabling mid-session never injects** (widget stays red)
+- **Minimal environment**: every turn injects the clean persona (`You are a helpful software engineer assistant.`) + `bash` + `str_replace_editor` (+ `inspect_image` when omp force-activates it for an image-less model — see above); no promote, no model monitoring
+- **Session-head disclosure**: first request (no user message in history) injects the mode's disclosure — normal = header + Internal URLs + xd protocol block + AGENTS + APPEND_SYSTEM, pure = AGENTS only; all blocks are reused from omp's rendering (`getSystemPrompt()`), so nested projects get the full AGENTS walk-up; compaction keeps it via the official hook; handoff/new clears messages and re-injects naturally; **enabling mid-session never injects** (widget stays red)
 - **Protocol handling** (at the tool-call interception point): `skill://` `agent://` `artifact://` `memory://` `rule://` `local://` are expanded natively by omp bash (read and write both work); `xd://<tool>` resolves the tool description via `getAllTools()` and returns it; the rest (`mcp://` `issue://` `pr://` `vault://` `omp://` `history://`) fail open to native bash
 - **Exit**: after a confirmed off, the full tool snapshot is restored and persona override stops; the next request injects a one-shot exit notice (ignore historical minimal-mode injections)
 
 ## Docs
 
 - [Design](docs/design/dsh-minimal.md) (D1-D9, authoritative) · [Testing](docs/design/testing.md) (L1-L3)
-- Decision records: `docs/adr/0002` (explicit switch) / `0003` (no activation condition) / `0005` (no promote) / `0006` (protocol handling) / `0007` (injection & exit notice)
+- Decision records: `docs/adr/0002` (explicit switch) / `0003` (no activation condition) / `0005` (no promote) / `0006` (protocol handling) / `0007` (injection & exit notice) / `0008` (dual-mode pure/normal) / `0009` (disclosure content contract)
 - Domain glossary: [CONTEXT.md](CONTEXT.md)
-- Spec & user stories: `.scratch/dsh-minimal/spec.md` (local tracker, not published)
+- Spec & user stories: `.scratch/disclosure-and-status/spec.md` (local tracker, not published)
 - 中文版: [README.zh-CN.md](README.zh-CN.md)
 
 ## License

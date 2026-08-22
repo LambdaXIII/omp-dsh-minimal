@@ -48,29 +48,43 @@ extensions:
 
 | 命令 | 行为 |
 |---|---|
-| `/dsh-minimal` | 开启极简开关（便利设 V4-Pro/High；开启后任何模型都极简） |
+| `/dsh-minimal` | 查看状态（裸命令 = status，**不开启**） |
+| `/dsh-minimal on` / `normal` | 开启极简（normal：完整披露——头部说明 + Internal URLs + xd 协议板块 + AGENTS + APPEND_SYSTEM；便利设 V4-Pro/High；开启后任何模型都极简） |
+| `/dsh-minimal pure` | 开启极简（pure：仅 AGENTS，无环境/纪律层） |
 | `/dsh-minimal off` | 退出（确认对话框 → 恢复完整工具 → 警告含 KV 缓存代价） |
-| `/dsh-minimal status` | 查看当前状态 |
+| `/dsh-minimal status` | 查看状态 + 版本：`off` \| `normal (injected)` \| `normal (not injected)` \| `pure (injected)` \| `pure (not injected)`，外加插件 / 实际 omp / 期望 omp（≥18）版本 |
 
-输入 `/dsh-minimal `（带空格）触发参数补全（`off` / `status` + 说明）。
+输入 `/dsh-minimal `（带空格）触发参数补全（`on` / `normal` / `pure` / `off` / `status` + 说明）。
 
-**效果**：开启后新会话首轮自动注入约定文件（`AGENTS.md` 原文，零工具文本）；模型全程只有 `bash` + `str_replace_editor`，thinking 开头呈 `We need` 式，多轮不纠结。已实测（真实 DeepSeek V4 Pro）：We need 复现、思考质量高；代价是速度较慢（约定全文注入）。
+**效果**：开启后新会话首轮按模式注入披露——normal 注入完整披露（头部 + `# Internal URLs` + xd 协议板块 + AGENTS + APPEND_SYSTEM，全部复用 omp 自身渲染，零工具文本）；pure 仅注入 AGENTS（无环境/纪律层）。模型全程只有 `bash` + `str_replace_editor`（例外见下「inspect_image」小节），thinking 开头呈 `We need` 式，多轮不纠结。已实测（真实 DeepSeek V4 Pro）：We need 复现、思考质量高；代价是速度较慢（披露注入）。
 
-**widget**：编辑器上方状态条——绿 = `DeepSeek Harness Minimal Mode: Context Injected`，红 = `DeepSeek Harness Minimal Mode: Active`（未注入，如中途开启）；off 消失。开关不持久化（session 重启默认关）。
+**widget**：编辑器上方状态条——绿 = `DeepSeek Harness Minimal Mode: Context Injected`（normal 已注入）、蓝 = `DeepSeek Harness Minimal Mode: Pure`（pure 已注入）、红 = `DeepSeek Harness Minimal Mode: Active`（任一模开启但未注入，如中途开启）；off 消失。开关不持久化（session 重启默认关）。
+
+## 使用要点：`inspect_image` 留在极简工具集
+
+omp 会对「无原生图像输入的模型」强制激活 `inspect_image`：默认 `inspect_image.mode: auto` 恰在 `model.input` 不含 `"image"` 时暴露它，且 omp 的 `reconcileInspectImageTool` 在每次模型/设置变化时重加回它，**无视 `setActiveTools`**。DeepSeek V4 模型无图像输入，因此极简模式下**实际工具集是 `bash`、`str_replace_editor` 和 `inspect_image`**——并非本 README 声明的那两个。插件无法移除它（扩展 API 无法设置 `inspect_image.mode`）。想移除需全局设置：
+
+```yaml
+# ~/.omp/agent/config.yml
+inspect_image:
+  mode: off
+```
+
+披露契约（normal / pure 各自注入什么）见 `docs/adr/0009-mode-disclosure-contract.md`。
 
 ## 机制
 
-- **极简环境**：开启期间每轮注入纯净 persona（`You are a helpful software engineer assistant.`）+ 仅 2 工具，无 promote、无模型监测
-- **会话头部注入**：首轮（历史无用户消息）注入约定文件原文；compact 经官方钩子保留；handoff/new 消息清空后自然重注入；**中途开启不注入**（widget 红如实反映）
+- **极简环境**：开启期间每轮注入纯净 persona（`You are a helpful software engineer assistant.`）+ `bash` + `str_replace_editor`（+ 模型无图像能力时 omp 强制的 `inspect_image`，见上）；无 promote、无模型监测
+- **会话头部披露**：首轮（历史无用户消息）按模式注入披露——normal = 头部 + Internal URLs + xd 协议板块 + AGENTS + APPEND_SYSTEM，pure = 仅 AGENTS；全部复用 omp 渲染（`getSystemPrompt()`），嵌套项目得到完整 AGENTS walk-up；compact 经官方钩子保留；handoff/new 消息清空后自然重注入；**中途开启不注入**（widget 红如实反映）
 - **协议处理**（工具调用拦截点）：`skill://` `agent://` `artifact://` `memory://` `rule://` `local://` 由 omp bash 原生展开（读写都工作）；`xd://<tool>` 经 `getAllTools()` 解析工具描述返回；其余（`mcp://` `issue://` `pr://` `vault://` `omp://` `history://`）fail-open 放行原生
 - **退出**：off 确认后恢复完整工具快照 + persona 停止覆盖；下一轮向模型注入一次性退出告知（忽略历史极简注入）
 
 ## 文档
 
 - [设计](docs/design/dsh-minimal.md)（D1-D9，权威规格）· [测试方法](docs/design/testing.md)（L1-L3）
-- 决策记录：`docs/adr/0002`（极简开关）/`0003`（无激活条件）/`0005`（无 promote）/`0006`（协议处理）/`0007`（注入与退出告知）
+- 决策记录：`docs/adr/0002`（极简开关）/`0003`（无激活条件）/`0005`（无 promote）/`0006`（协议处理）/`0007`（注入与退出告知）/`0008`（双模式 pure/normal）/`0009`（披露内容契约）
 - 领域术语：[CONTEXT.md](CONTEXT.md)
-- 规格与用户故事：`.scratch/dsh-minimal/spec.md`（本地 tracker，不发布）
+- 规格与用户故事：`.scratch/disclosure-and-status/spec.md`（本地 tracker，不发布）
 - English: [README.md](README.md)
 
 ## 许可证
@@ -79,6 +93,7 @@ extensions:
 
 ## 已知限制
 
-- 速度较慢：注入约定全文 + 极简环境（单轮 token 成本、KV 缓存切换代价）
+- 速度较慢：注入披露全文 + 极简环境（单轮 token 成本、KV 缓存切换代价）
 - 多轮持续犹豫：零上下文环境的模型固有代价（ablation 实证非注入可解）
 - `mcp://` 等协议在极简环境不可用（无官方读取 API，fail-open 由 bash 报错）
+- 极简工具集实为 `bash` + `str_replace_editor` + `inspect_image`（deepseek 无图像时 omp 强制，见「使用要点」小节；`inspect_image.mode: off` 可移除）
