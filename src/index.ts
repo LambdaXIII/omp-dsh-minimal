@@ -430,7 +430,10 @@ export default function dshMinimal(pi: ExtensionAPI): void {
 
   pi.on("session_switch", (event, ctx) => {
     head.onSessionSwitch(event.reason);
-    if (event.reason === "handoff" || event.reason === "new") {
+    // omp 18 removed the `handoff` reason: handoff now commits to the current
+    // session via the compaction flow (which re-attaches the injection text),
+    // never as a session switch. Only a genuinely new session resets here.
+    if (event.reason === "new") {
       injectionOk = false;
       debug(`session_switch(${event.reason}): head reset`);
       if (enteredMinimal) refreshWidget(ctx);

@@ -1,6 +1,13 @@
 # Changelog
 
-本文件按**对外行为**记录变更（参照 journal `07-工具脚本设计与集成` 的 CHANGELOG 分类纪律）：修复错误行为记 Fixed、新增功能记 Added、对外行为变化记 Changed；行为不变的重构不记录。
+## [0.3.0] — 2026-08-22
+
+### Changed
+
+- 对齐 omp 18：运行时依赖（`@oh-my-pi/omptype` / `pi-agent-core` / `pi-tui`）升至 `^18.0.0`，开发依赖 `pi-coding-agent` 升至 `18.0.0`（omp 18 将扩展的 `@oh-my-pi/pi-*` import 重写为内置模块，锁 17 仅影响编译类型；升 18 消除声明与运行时的错位）
+- 移除 `session_switch` 的 `handoff` 分支：omp 18 起 handoff 不再作为 session 切换触发（改为经 compaction 提交到当前会话，注入文本由 `session.compacting` 重挂），仅 `new` 重置会话头部
+
+## [0.2.0] — 2026-08-19
 
 ## [0.2.0] — 2026-08-19
 
