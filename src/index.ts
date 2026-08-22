@@ -23,24 +23,28 @@
  * Design: docs/design/dsh-minimal.md · ADRs: docs/adr/0002-0007
  * Testing: docs/design/testing.md
  */
-import type { ExtensionAPI, ExtensionContext } from "@oh-my-pi/pi-coding-agent";
+import { VERSION, type ExtensionAPI, type ExtensionContext } from "@oh-my-pi/pi-coding-agent";
 import { ThinkingLevel } from "@oh-my-pi/pi-agent-core";
 import { Type } from "@oh-my-pi/omptype/typebox";
 import { Container, Text } from "@oh-my-pi/pi-tui";
 import * as fsPromises from "node:fs/promises";
-import { join } from "node:path";
-import { homedir } from "node:os";
+import pkg from "../package.json" with { type: "json" };
 import {
   ANCHOR_TOOLS,
   BASH_EXPANDED_PROTOCOLS,
   MINIMAL_PERSONA,
   SessionHeadTracker,
   ExitNoticeTracker,
+  buildDisclosure,
+  buildXdProtocolBlock,
+  describeState,
   detectProtocol,
   extractUrl,
   formatNumberedContent,
+  formatStatus,
   parseCommand,
   shouldInjectConventions,
+  type DisclosureParts,
   type MinimalMode,
 } from "./core";
 
@@ -63,9 +67,6 @@ const PRO_MODEL_SPECS = ["deepseek/deepseek-v4-pro", "deepseek/deepseek-v4-pro:h
 
 const CUSTOM_TYPE_INJECT = "dsh-minimal-inject";
 const CUSTOM_TYPE_EXIT_NOTICE = "dsh-minimal-exit-notice";
-
-/** Convention files injected at the session head (D6/ADR-0007). */
-const CONVENTION_FILES = ["AGENTS.md"];
 
 const WIDGET_GREEN = "DeepSeek Harness Minimal Mode: Context Injected";
 const WIDGET_RED = "DeepSeek Harness Minimal Mode: Active";
@@ -91,8 +92,9 @@ export default function dshMinimal(pi: ExtensionAPI): void {
   };
 
   // Minimal switch (opt-in, ADR-0002/0008): three-state `off | normal | pure`.
-  // `/dsh-minimal`/`on`/`normal` → normal; `pure` → pure; `off` exits. While
-  // off the plugin is fully transparent (except a one-shot exit notice).
+  // `/dsh-minimal on`/`normal` → normal; `pure` → pure; bare `/dsh-minimal` and
+  // `status` show status; `off` exits. While off the plugin is fully
+  // transparent (except a one-shot exit notice).
   let minimalMode: MinimalMode = "off";
   // Snapshot of the full tool set taken when entering minimal mode, restored
   // on `/dsh-minimal off` (D8).
@@ -137,15 +139,15 @@ export default function dshMinimal(pi: ExtensionAPI): void {
   };
 
   /**
-   * The widget state that truthfully reflects the current mode + injection:
+   * The widget state that truthfully reflects the current mode + injection
+   * (ADR-0008/0009):
    * - off → no widget
-   * - pure → always blue (no injection concept)
-   * - normal → green when conventions injected, red otherwise
+   * - normal + injected → green; pure + injected → blue
+   * - any enabled mode not injected (e.g. mid-session enable) → red
    */
   const widgetFor = (): WidgetState => {
     if (minimalMode === "off") return "off";
-    if (minimalMode === "pure") return "blue";
-    return injectionOk ? "green" : "red";
+    return injectionOk ? (minimalMode === "pure" ? "blue" : "green") : "red";
   };
 
   /** Recompute the widget from current mode/injection truth and repaint. */
@@ -154,30 +156,64 @@ export default function dshMinimal(pi: ExtensionAPI): void {
   };
 
   /**
-   * Builds the session-head injection message (D6/ADR-0007): convention file
-   * text (cwd/AGENTS.md + ~/.omp/agent/AGENTS.md), NOT event.systemPrompt
-   * (which renders tool names/descriptions/policy). Zero tool text. Returns
-   * undefined when no convention file is readable — no injection then.
+   * Extracts the `# Internal URLs` section from the omp system prompt
+   * rendering (ADR-0009): the protocol directory block, up to the next
+   * `# ` / `§ ` heading. Undefined when the section is absent.
+   */
+  const extractInternalUrls = (text: string): string | undefined => {
+    const start = text.indexOf("# Internal URLs");
+    if (start < 0) return undefined;
+    const after = text.slice(start);
+    const heading = after.search(/\n(?:# |§ )/);
+    const section = heading >= 0 ? after.slice(0, heading) : after;
+    return section.trim() || undefined;
+  };
+
+  /** Extracts the `<repo-rules>`[AGENTS] section (same pattern omp's compaction uses). */
+  const extractRepoRules = (text: string): string | undefined =>
+    text.match(/<repo-rules>\n[\s\S]*?\n<\/repo-rules>/)?.[0];
+
+  /**
+   * Extracts the APPEND_SYSTEM rendering: the project prompt tail after
+   * `<critical>`. The LAST block carrying `</critical>` is the project prompt
+   * (block0's `§ Critical` section also carries one, but sits before it).
+   */
+  const extractAppendSystem = (blocks: readonly string[]): string | undefined => {
+    const projectBlock = [...blocks].reverse().find((block) => block.includes("</critical>"));
+    const after = projectBlock?.split("</critical>")[1];
+    return after?.trim() || undefined;
+  };
+
+  /**
+   * Builds the session-head disclosure message (ADR-0009): normal = header +
+   * Internal URLs + xd protocol block + AGENTS + APPEND_SYSTEM; pure = AGENTS
+   * only. Blocks are reused from omp's own rendering (`getSystemPrompt()`), so
+   * nested projects get the full AGENTS walk-up. The xd block is included only
+   * when omp rendered the xd devices section (xdev active). Returns undefined
+   * when the mode discloses nothing — no injection then.
    */
   const buildInjection = async (ctx: ExtensionContext): Promise<{ customType: string; content: string; display: boolean; attribution: "agent" } | undefined> => {
-    const files: string[] = [];
-    for (const name of CONVENTION_FILES) {
-      files.push(join(ctx.cwd, name));
+    const blocks = ctx.getSystemPrompt();
+    const text = blocks.join("\n");
+    const parts: DisclosureParts = {
+      internalUrls: extractInternalUrls(text),
+      repoRules: extractRepoRules(text),
+      appendSystem: extractAppendSystem(blocks),
+    };
+    // omp's own xdevEntries() needs internal XdevState, which the extension
+    // API does not expose; getAllTools() is the same official registry the
+    // xd:// interception resolves through, so the listed devices match what
+    // `xd://<tool>` actually answers.
+    if (text.includes("# xd:// Tool Devices")) {
+      parts.xdBlock = buildXdProtocolBlock(
+        pi.getAllTools().map((tool) => ({ name: tool.name, summary: tool.description.split("\n")[0] })),
+      );
     }
-    files.push(join(homedir(), ".omp", "agent", "AGENTS.md"));
-    const parts: string[] = [];
-    for (const file of files) {
-      try {
-        const content = await fsPromises.readFile(file, "utf8");
-        if (content.trim()) parts.push(content.trim());
-      } catch {
-        // missing/unreadable convention file: skip, fail-open
-      }
-    }
-    if (parts.length === 0) return undefined;
+    const content = buildDisclosure(minimalMode, parts);
+    if (!content) return undefined;
     return {
       customType: CUSTOM_TYPE_INJECT,
-      content: parts.join("\n\n"),
+      content,
       display: false,
       attribution: "agent",
     };
@@ -311,7 +347,7 @@ export default function dshMinimal(pi: ExtensionAPI): void {
         {
           value: "pure",
           label: "pure",
-          description: "Enable minimal mode (pure): no convention injection, V4-Pro/High",
+          description: "Enable minimal mode (pure): AGENTS conventions only, no environment disclosure, V4-Pro/High",
         },
         {
           value: "off",
@@ -337,17 +373,12 @@ export default function dshMinimal(pi: ExtensionAPI): void {
           );
           return;
         case "status": {
-          const state =
-            minimalMode === "off"
-              ? "off"
-              : minimalMode === "pure"
-                ? "pure"
-                : enteredMinimal
-                  ? injectionOk
-                    ? "normal (injected)"
-                    : "normal (not injected)"
-                  : "normal (not injected)";
-          ctx.ui.notify(`dsh-minimal: ${state}`, "info");
+          // describeState maps off → "off", so no pre-check is needed here.
+          const state = describeState(minimalMode, injectionOk);
+          ctx.ui.notify(
+            formatStatus(state, { pluginVersion: pkg.version, hostOmpVersion: VERSION }),
+            "info",
+          );
           return;
         }
         case "exit": {
@@ -479,18 +510,21 @@ export default function dshMinimal(pi: ExtensionAPI): void {
       enteredMinimal = true;
       log("minimal: active (bash, str_replace_editor)");
     }
-    // Injection is the ONLY difference between normal and pure (ADR-0008):
-    // normal injects at the session head, pure never injects.
+    // Injection differs by mode (ADR-0008/0009): normal discloses the full
+    // environment layer, pure only the AGENTS conventions; both inject at the
+    // session head.
     if (wasAtHead && shouldInjectConventions(minimalMode)) {
       const injection = await buildInjection(ctx);
       if (injection) {
         injectionText = injection.content;
         injectionOk = true;
-        setWidget("green", ctx);
-        log("injected: convention files");
+        // widgetFor() maps injected mode truth to the tri-color contract:
+        // normal → green, pure → blue.
+        setWidget(widgetFor(), ctx);
+        log("injected: disclosure");
         return { systemPrompt: [MINIMAL_PERSONA], message: injection };
       }
-      debug("inject: no convention file readable; skipping");
+      debug("inject: nothing to disclose; skipping");
     }
     if (!injectionOk) refreshWidget(ctx);
     return { systemPrompt: [MINIMAL_PERSONA] };

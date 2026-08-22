@@ -34,15 +34,15 @@ omp --extension ./src/index.ts
 | 2 | 开关状态 | `/dsh-minimal status` 或 widget | 与操作一致 |
 | 3 | 极简工具目录 | 日志 `minimal tools active` / 请求观察 | 实际只有 `bash` + `str_replace_editor` |
 | 4 | persona | 请求观察 | 纯净 persona `You are a helpful…` |
-| 5 | 注入 | 日志 `injected` / 请求观察 | 会话头部一轮：约定文件原文（AGENTS.md），**无工具提及** |
+| 5 | 注入 | 日志 `injected` / 请求观察 | 会话头部一轮：披露内容（normal = 头部说明 + Internal URLs + xd 板块 + AGENTS + APPEND_SYSTEM；pure = 仅 AGENTS，ADR-0009），**无工具名/描述/schema** |
 | 6 | 协议映射 | 日志 `protocol dispatch` | `cat local://` 等被委托原生工具；无协议命令放行 |
 | 7 | 退出 | 日志 `switch off` | 确认对话框、工具恢复、下一轮退出告知 |
 | 8 | 推理风格 | 对话输出 | 极简期 `We need` 式干净推理（L3） |
-| 9 | widget | TUI | 完整描述句文案，绿/红反映注入状态 |
+| 9 | widget | TUI | 完整描述句文案，三色：绿 = normal 已注入、蓝 = pure 已注入、红 = 开启未注入 |
 
 ## 4. L1 · 单元测试（agent 完成，必做）
 
-- **范围**：纯逻辑（`src/core.ts` seam）——命令解析 `parseCommand`（裸命令→normal、`on`/`normal`→normal、`pure`→pure、`off`→exit、`status`→status、未知词→unknown、多余参数仅取首词）、注入判定 `shouldInjectConventions`（normal→true，pure/off→false）、会话头部状态机（session_start/switch(handoff|new) 重置、请求消费、fork/compact 保持）、`detectProtocol`（各协议串识别、无协议、畸形输入）、`mapVerbToTool`（动词×协议矩阵、无映射放行）、退出状态机（off→确认→恢复→告知标记）
+- **范围**：纯逻辑（`src/core.ts` seam）——命令解析 `parseCommand`（裸命令→status、`on`/`normal`→normal、`pure`→pure、`off`→exit、`status`→status、未知词→unknown、多余参数仅取首词）、注入判定 `shouldInjectConventions`（normal/pure→true，off→false）、披露拼装 `buildDisclosure`（normal 全板块顺序 / pure 仅 AGENTS / off 无）、`formatStatus`（版本 + 状态单行）、会话头部状态机（session_start/switch(handoff|new) 重置、请求消费、fork/compact 保持）、`detectProtocol`（各协议串识别、无协议、畸形输入）、`mapVerbToTool`（动词×协议矩阵、无映射放行）、退出状态机（off→确认→恢复→告知标记）
 - **方法**：bun test（`bun test`）
 - **验证点**：每种判定分支、矩阵组合、状态转换的确定性输出
 
@@ -51,7 +51,7 @@ omp --extension ./src/index.ts
 真实 omp 会话（无需真实模型）：
 
 1. `omp --extension ./src/index.ts` 启动，无加载错误
-2. `/dsh-minimal status` → 默认关闭
+3. `/dsh-minimal status` → 默认关闭（含插件/宿主/期望 omp 版本）；`/dsh-minimal`（裸命令）→ 同样显示 status，不开启；`/dsh-minimal on`、`/dsh-minimal normal` → normal（注入后绿 widget）；`/dsh-minimal pure` → pure（注入后蓝 widget）
 3. `/dsh-minimal` → 极简环境 + widget 出现（红=未注入）；`/dsh-minimal on`、`/dsh-minimal normal` 行为一致；`/dsh-minimal pure` → 蓝 widget、不注入
 4. 发消息 → 注入完成（widget 绿）、工具卸载、模型回复
 5. 构造 bash 协议调用（`cat local://x`）→ 委托原生工具 → 结果返回
